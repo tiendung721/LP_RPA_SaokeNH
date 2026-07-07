@@ -122,6 +122,10 @@ def _extract_counterparty_hint(text: str) -> tuple[str, str]:
             "company_prefix",
             r"\b(?:(?:CONG TY|CTY|C TY)(?:\s+(?:TNHH|CP|CO PHAN))?|CT\s+(?:TNHH|CP))\s+(.{3,100}?)(?=\s+(?:TT|THANH TOAN|NOP|CHUYEN|CK|PAYMENT|PAY|TAX CODE|MST|MA SO THUE|GD|TAI)\b|\s+\d{8,14}\b|$)",
         ),
+        (
+            "compact_company_prefix",
+            r"\bCTY([A-Z0-9]{3,80}?)(?=\s+(?:TT|THANH TOAN|NOP|CHUYEN|CK|PAYMENT|PAY|TAX CODE|MST|MA SO THUE|GD|TAI|BILL|BL|STSTMSHP[0-9]*)\b|\s+\d{8,14}\b|$)",
+        ),
         ("name_before_tax_code", r"^(.{3,80}?)\s+(?:TAX CODE|MST|MA SO THUE)\b"),
     ]
     for source, pattern in patterns:
@@ -144,11 +148,17 @@ def _clean_counterparty_segment(segment: str) -> str:
     if " CHO " in segment:
         segment = segment.rsplit(" CHO ", 1)[-1].strip()
     segment = _cut_counterparty_noise(segment)
-    stop_pattern = r"\b(?:THEO|HD|HOA DON|SO HD|BANG KE|BILL|BL|KY HOA DON|TAU|LAN|MST|MA SO THUE)\b|\bTHANG\s+\d"
+    stop_pattern = (
+        r"\b(?:THEO|HD|HOA DON|SO HD|BANG KE|BILL|BL|KY HOA DON|TAU|LAN|MST|MA SO THUE"
+        r"|TAM UNG|UNG TIEN|THANH TOAN|CHUYEN TIEN|PAYMENT|PHI CAP LENH|LAY LENH"
+        r"|PHI DO|PHI D O|PHI DICH VU)\b|\bTHANG\s+\d"
+    )
     segment = re.split(stop_pattern, segment, maxsplit=1)[0]
     segment = re.sub(r"\b(CTY|CT|CONG TY|TNHH|CO PHAN|CP|COMPANY|LIMITED|LTD|JSC|CORPORATION)\b", " ", segment)
     segment = re.sub(r"[^A-Z0-9]+", " ", segment)
     tokens = [token for token in segment.split() if token not in {"CUOC", "PHI", "DICH"}]
+    if _looks_like_own_branch_segment(tokens):
+        return ""
     return " ".join(tokens[:6]).strip()
 
 
@@ -216,6 +226,12 @@ def _cut_counterparty_noise(segment: str) -> str:
         r"|\b(?=[A-Z0-9]*\d)[A-Z0-9]{10,}\b"
     )
     return re.split(noise_pattern, segment, maxsplit=1)[0].strip()
+
+
+def _looks_like_own_branch_segment(tokens: list[str]) -> bool:
+    if len(tokens) < 2 or tokens[:2] != ["VAN", "PHONG"]:
+        return False
+    return any(token in {"HAI", "PHONG", "HAIPHONG", "HN", "HCM", "HOCHIMINH"} for token in tokens[2:])
 
 
 def _detect_intent(text: str) -> str:

@@ -52,6 +52,24 @@ def test_extract_new_acb_counterparty_patterns():
         assert entities.counterparty_hint == expected_hint
 
 
+def test_extract_counterparty_strips_business_purpose_after_company_name():
+    entities = extractor().extract("ACB", "CTY VOI SON HOA TAM UNG TIEN VOI-GD-452495")
+    assert entities.counterparty_hint == "VOI SON HOA"
+
+
+def test_extract_compact_cty_prefix():
+    entities = extractor().extract("ACB", "CTYKHANHKHIEM STSTMSHP2603106 FT26106788585970")
+    assert entities.counterparty_hint == "KHANHKHIEM"
+
+
+def test_extract_ignores_own_company_branch_after_cho():
+    entities = extractor().extract(
+        "ACB",
+        "TIEN THUE VAN PHONG VA TIEN DIEN NUOC CHO LE PHAM VAN PHONG HAI PHONG HD 1C26TLP649",
+    )
+    assert entities.counterparty_hint == ""
+
+
 def test_extract_cash_person_name_from_cash_descriptions():
     cases = [
         "LE THI THANH HOA#001178043963#CHI SEC 22541668#1156992 ;",

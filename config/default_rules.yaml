@@ -436,6 +436,43 @@ rules:
     object_catalog: payable
 
   - flow: bao_no
+    rule_id: "representative_office_rent_out"
+    direction: "money_out"
+    use_case: "Tra tien thue VPDD"
+    account: "642"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TIEN THUE VPDD"
+      - "THUE VPDD"
+      - "TIEN THUE VAN PHONG DAI DIEN"
+      - "THUE VAN PHONG DAI DIEN"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 94
+    requires_object: false
+    object_catalog: none
+    reason_template: "TT tien thue VPDD"
+
+  - flow: bao_no
+    rule_id: "membership_fee_out"
+    direction: "money_out"
+    use_case: "Tra phi hoi vien"
+    account: "642"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "PHI HOI VIEN"
+      - "CHUYEN PHI HOI VIEN"
+      - "HOI PHI"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 95
+    requires_object: false
+    object_catalog: none
+    reason_template: "TT phi hoi vien"
+
+  - flow: bao_no
     use_case: "Chi phí thanh toán"
     account: "331"
     bank_scope: ["VCB", "ACB", "MSB"]
@@ -594,6 +631,30 @@ rules:
     reason_template: "TT phí bảo hiểm AAA"
 
   - flow: bao_co
+    rule_id: "customer_bill_service_in"
+    direction: "money_in"
+    use_case: "Thu phi dich vu/bill cua khach"
+    account: "131"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "LAY LENH BILL"
+      - "LAY LENH"
+      - "PHI DO BL"
+      - "PHI D O"
+      - "PHI CAP LENH"
+      - "PHI CAP LEN"
+      - "NOP PHI BILL"
+      - "PHI BILL"
+      - "STSTMSHP"
+      - "BILL"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 72
+    requires_object: true
+    object_catalog: receivable
+
+  - flow: bao_co
     rule_id: "delivery_order_fee_in"
     direction: "money_in"
     use_case: "Thu phí cấp lệnh"
@@ -662,11 +723,18 @@ rules:
     include_keywords:
       - "PHI PHAT LENH"
       - "PHI BILL"
+      - "PHI DO"
+      - "PHI DO BL"
+      - "PHI DO CHO BL"
+      - "PHI CAP LENH"
+      - "PHI CAP LEN"
+      - "LAY LENH"
+      - "BILL"
       - "BL"
     context_keywords: []
     exclude_keywords: []
     auto_process: true
-    priority: 80
+    priority: 66
     requires_object: true
     object_catalog: receivable
     amount_equals: 1100000

@@ -16,6 +16,9 @@ foreign_currency_accounts:
 matching:
   min_score: 80
   min_gap: 8
+  cross_catalog_fallback: true
+  cross_catalog_min_score: 97
+  cross_catalog_min_gap: 10
 
 output:
   date_format: "%d/%m/%Y"

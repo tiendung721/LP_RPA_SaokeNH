@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 
 from src.config_loader import load_config, load_rules
 from src.ml.object_ranker import ObjectRanker
-from src.models import ExtractedEntities, ObjectCandidate, ProcessedTransaction, Transaction
+from src.models import ExtractedEntities, ObjectCandidate, ProcessedTransaction, Rule, Transaction
 from src.object_matcher import ObjectMatcher
 from src.output_writer import RPA_BUSINESS_COLUMNS, RPA_COLUMNS, write_excel, write_object_match_review
 from src.processor import process_transaction
@@ -81,6 +81,153 @@ def test_process_transaction_uses_object_ranker_for_ambiguous_candidates():
     assert result.object_ml_result.status == "OK"
 
 
+def test_process_transaction_uses_strong_cross_catalog_fallback():
+    txn = Transaction(
+        source_file="sample.xlsx",
+        bank="ACB",
+        transaction_date=date(2026, 4, 1),
+        doc_no="1",
+        description="CROSS CUSTOMER THANH TOAN",
+        counterparty_raw="",
+        debit_amount=0,
+        credit_amount=1000,
+        original_row_index=2,
+    )
+    rule = Rule(
+        flow="bao_co",
+        use_case="Cong no cua khach",
+        account="131",
+        bank_scope=["ACB"],
+        include_keywords=["THANH TOAN"],
+        context_keywords=[],
+        exclude_keywords=[],
+        auto_process=True,
+        priority=1,
+        requires_object=True,
+        object_catalog="receivable",
+    )
+    payable = ObjectMatcher.from_records(
+        [{"code": "CROSS", "name": "Cross Customer"}],
+        aliases={"CROSS": ["CROSS CUSTOMER"]},
+    )
+
+    result = process_transaction(txn, _config(), RuleEngine([rule]), ObjectMatcher([]), payable)
+
+    assert result.status == "OK"
+    assert result.object_code == "CROSS"
+    assert result.object_match_source == "cross_catalog_payable_alias_match"
+
+
+def test_cross_catalog_fallback_does_not_override_primary_ambiguity():
+    txn = Transaction(
+        source_file="sample.xlsx",
+        bank="ACB",
+        transaction_date=date(2026, 4, 1),
+        doc_no="1",
+        description="TT CHO ABC",
+        counterparty_raw="",
+        debit_amount=0,
+        credit_amount=1000,
+        original_row_index=2,
+    )
+    rule = Rule(
+        flow="bao_co",
+        use_case="Cong no cua khach",
+        account="131",
+        bank_scope=["ACB"],
+        include_keywords=["TT CHO"],
+        context_keywords=[],
+        exclude_keywords=[],
+        auto_process=True,
+        priority=1,
+        requires_object=True,
+        object_catalog="receivable",
+    )
+    receivable = ObjectMatcher.from_records(
+        [
+            {"code": "A", "name": "Cong ty ABC"},
+            {"code": "B", "name": "ABC Logistics"},
+        ],
+        min_gap=8,
+    )
+    payable = ObjectMatcher.from_records(
+        [{"code": "PAYABLE_TARGET", "name": "ABC Logistics"}],
+        aliases={"PAYABLE_TARGET": ["ABC"]},
+    )
+
+    result = process_transaction(txn, _config(), RuleEngine([rule]), receivable, payable)
+
+    assert result.status == "ERROR"
+    assert result.object_code == "ERROR"
+    assert "Nhiều mã đối tượng" in result.error_note
+    assert not result.object_match_source.startswith("cross_catalog")
+
+
+def test_context_disambiguation_can_resolve_business_specific_ambiguity():
+    txn = Transaction(
+        source_file="sample.xlsx",
+        bank="ACB",
+        transaction_date=date(2026, 4, 1),
+        doc_no="1",
+        description="THANH TOAN PHI CANG VU CHO HAI PHONG",
+        counterparty_raw="",
+        debit_amount=0,
+        credit_amount=1000,
+        original_row_index=2,
+    )
+    rule = Rule(
+        flow="bao_co",
+        use_case="Cong no cua khach",
+        account="131",
+        bank_scope=["ACB"],
+        include_keywords=["PHI CANG VU"],
+        context_keywords=[],
+        exclude_keywords=[],
+        auto_process=True,
+        priority=1,
+        requires_object=True,
+        object_catalog="receivable",
+    )
+    receivable = ObjectMatcher.from_records(
+        [
+            {"code": "CANGVUHP", "name": "Cang vu hang hai Hai Phong"},
+            {"code": "CANGHP", "name": "Cang Hai Phong"},
+        ],
+        min_gap=8,
+    )
+
+    result = process_transaction(txn, _config(), RuleEngine([rule]), receivable, ObjectMatcher([]))
+
+    assert result.status == "OK"
+    assert result.object_code == "CANGVUHP"
+    assert result.object_match_source == "context_disambiguation_entity_match"
+
+
+def test_bao_co_company_advance_falls_back_to_receivable_catalog():
+    txn = Transaction(
+        source_file="sample.xlsx",
+        bank="ACB",
+        transaction_date=date(2026, 4, 1),
+        doc_no="1",
+        description="CTY VOI SON HOA TAM UNG TIEN VOI",
+        counterparty_raw="",
+        debit_amount=0,
+        credit_amount=1000,
+        original_row_index=2,
+    )
+    receivable = ObjectMatcher.from_records(
+        [{"code": "SONHOA", "name": "Cong ty TNHH San Xuat va Thuong Mai Voi Son Hoa"}],
+        exact_phrase_overrides={"VOI SON HOA": "SONHOA"},
+    )
+
+    result = process_transaction(txn, _config(), _engine(), receivable, ObjectMatcher([]), internal_matcher=ObjectMatcher([]))
+
+    assert result.status == "OK"
+    assert result.object_code == "SONHOA"
+    assert result.credit_account == "131"
+    assert result.matched_rule == "advance_company_receivable"
+
+
 def test_generate_reason_uses_payment_purpose_and_object_name():
     purposes = load_reason_purposes(PROJECT_ROOT / "config" / "reason_aliases.yaml")
     assert (
@@ -123,6 +270,7 @@ def test_generate_reason_uses_payment_purpose_and_object_name():
     assert generate_reason("bao_co", "1121VCB", "131", "KVIII") == "Thanh toán (KVIII)"
     assert generate_reason("bao_no", "141", "1121CT", "KHÁCH A") == "Tạm ứng cá nhân KHÁCH A"
     assert generate_reason("bao_no", "334", "1121CT", "") == "Trả lương nhân viên"
+    assert generate_reason("bao_no", "3334", "1121CT", "") == "Nộp thuế TNDN"
     assert generate_reason("bao_co", "1121VCB", "515", "") == "Lãi tiền gửi ngân hàng"
     assert reason_requires_object_code("bao_no", "331", "1121CT")
     assert not reason_requires_object_code("bao_no", "334", "1121CT")

@@ -237,6 +237,7 @@ def process_transaction(
         internal_matcher = ObjectMatcher([])
     entities = entity_extractor.extract(transaction.bank, transaction.description, transaction.counterparty_raw)
     foreign_exchange = extract_foreign_exchange(transaction.description)
+    transaction_matching_cfg = config.get("matching", {})
 
     rule_match = None
     ml_result = ClassificationResult()
@@ -306,11 +307,17 @@ def process_transaction(
                 transaction.description,
                 counterparty_hint=entities.counterparty_hint,
                 cleaned_description=entities.cleaned_description,
+                cross_catalog_enabled=bool(transaction_matching_cfg.get("cross_catalog_fallback", True)),
+                cross_catalog_min_score=float(transaction_matching_cfg.get("cross_catalog_min_score", 97)),
+                cross_catalog_min_gap=float(transaction_matching_cfg.get("cross_catalog_min_gap", 10)),
             )
+            if match_result.status == "AMBIGUOUS":
+                match_result = _disambiguate_ambiguous_object(active_rule, match_result, transaction.description, entities)
             if match_result.status != "OK":
                 fallback_rule, fallback_result = _company_advance_fallback(
                     active_rule,
                     payable_matcher,
+                    receivable_matcher,
                     transaction,
                     entities,
                 )
@@ -326,6 +333,18 @@ def process_transaction(
                 if active_rule.forced_object_code:
                     object_code = active_rule.forced_object_code
                 confidence = min(confidence or 1.0, match_result.score / 100)
+            elif _can_use_forced_object_code_without_match(active_rule):
+                object_code = active_rule.forced_object_code
+                object_name = ""
+                match_result = ObjectMatchResult(
+                    code=object_code,
+                    name=object_name,
+                    status="OK",
+                    score=100.0,
+                    source="forced_object_code",
+                    candidates=match_result.candidates,
+                )
+                confidence = confidence or 1.0
             else:
                 if object_ranker and match_result.candidates:
                     object_ml_result = object_ranker.rank(
@@ -790,14 +809,31 @@ def _match_rule_object(
     description: str,
     counterparty_hint: str,
     cleaned_description: str,
+    cross_catalog_enabled: bool = True,
+    cross_catalog_min_score: float = 97.0,
+    cross_catalog_min_gap: float = 10.0,
 ) -> ObjectMatchResult:
     matcher = _matcher_for_catalog(rule.object_catalog, payable_matcher, receivable_matcher, internal_matcher)
-    return matcher.match(
+    result = matcher.match(
         counterparty_raw,
         description,
         counterparty_hint=counterparty_hint,
         cleaned_description=cleaned_description,
     )
+    if result.status != "NOT_FOUND" or not cross_catalog_enabled:
+        return result
+    fallback = _cross_catalog_fallback_match(
+        rule.object_catalog,
+        payable_matcher,
+        receivable_matcher,
+        counterparty_raw,
+        description,
+        counterparty_hint,
+        cleaned_description,
+        cross_catalog_min_score,
+        cross_catalog_min_gap,
+    )
+    return fallback or result
 
 
 def _matcher_for_catalog(
@@ -818,11 +854,41 @@ def _matcher_for_catalog(
 def _company_advance_fallback(
     active_rule: Rule,
     payable_matcher: ObjectMatcher,
+    receivable_matcher: ObjectMatcher,
     transaction: Transaction,
     entities: Any,
 ) -> tuple[Rule | None, ObjectMatchResult]:
     if not _is_internal_advance_rule(active_rule):
         return None, ObjectMatchResult()
+    if active_rule.flow == FLOW_BAO_CO:
+        receivable_result = receivable_matcher.match(
+            transaction.counterparty_raw,
+            transaction.description,
+            counterparty_hint=entities.counterparty_hint,
+            cleaned_description=entities.cleaned_description,
+        )
+        if receivable_result.status != "OK" and not _has_company_signal(f"{transaction.counterparty_raw} {transaction.description}"):
+            return None, receivable_result
+        return (
+            Rule(
+                flow=FLOW_BAO_CO,
+                use_case="Nhận tạm ứng công ty/khách",
+                account="131",
+                bank_scope=active_rule.bank_scope,
+                include_keywords=[],
+                context_keywords=[],
+                exclude_keywords=[],
+                auto_process=True,
+                priority=active_rule.priority,
+                requires_object=True,
+                object_catalog="receivable",
+                rule_id="advance_company_receivable",
+                direction=active_rule.direction,
+                reason_template="Nhận tiền tạm ứng ({object_name})",
+            ),
+            receivable_result,
+        )
+
     payable_result = payable_matcher.match(
         transaction.counterparty_raw,
         transaction.description,
@@ -853,7 +919,112 @@ def _company_advance_fallback(
 
 
 def _is_internal_advance_rule(rule: Rule) -> bool:
-    return rule.flow == FLOW_BAO_NO and rule.account == "141" and rule.object_catalog == INTERNAL_OBJECT_CATALOG
+    return rule.flow in {FLOW_BAO_NO, FLOW_BAO_CO} and rule.account == "141" and rule.object_catalog == INTERNAL_OBJECT_CATALOG
+
+
+def _cross_catalog_fallback_match(
+    primary_catalog: str,
+    payable_matcher: ObjectMatcher,
+    receivable_matcher: ObjectMatcher,
+    counterparty_raw: str,
+    description: str,
+    counterparty_hint: str,
+    cleaned_description: str,
+    min_score: float,
+    min_gap: float,
+) -> ObjectMatchResult | None:
+    fallback_catalog = ""
+    fallback_matcher: ObjectMatcher | None = None
+    if primary_catalog == "payable":
+        fallback_catalog = "receivable"
+        fallback_matcher = receivable_matcher
+    elif primary_catalog == "receivable":
+        fallback_catalog = "payable"
+        fallback_matcher = payable_matcher
+    if not fallback_matcher:
+        return None
+
+    result = fallback_matcher.match(
+        counterparty_raw,
+        description,
+        counterparty_hint=counterparty_hint,
+        cleaned_description=cleaned_description,
+    )
+    if not _is_acceptable_cross_catalog_result(result, min_score, min_gap):
+        return None
+    return ObjectMatchResult(
+        code=result.code,
+        name=result.name,
+        status="OK",
+        score=result.score,
+        source=f"cross_catalog_{fallback_catalog}_{result.source}",
+        candidates=result.candidates,
+    )
+
+
+def _is_acceptable_cross_catalog_result(result: ObjectMatchResult, min_score: float, min_gap: float) -> bool:
+    if result.status != "OK":
+        return False
+    if result.source in {"exact_phrase", "alias_match", "tax_code", "catalog_phrase"}:
+        return True
+    if result.score < min_score:
+        return False
+    second_score = result.candidates[1].score if len(result.candidates) > 1 else 0.0
+    return result.score - second_score >= min_gap
+
+
+def _disambiguate_ambiguous_object(
+    rule: Rule,
+    match_result: ObjectMatchResult,
+    description: str,
+    entities: Any,
+) -> ObjectMatchResult:
+    if match_result.status != "AMBIGUOUS" or not match_result.candidates:
+        return match_result
+    context = normalize_text(f"{description} {getattr(entities, 'service_hint', '')}")
+    scored = [
+        (_object_context_score(candidate, context, rule.flow), candidate)
+        for candidate in match_result.candidates[:5]
+    ]
+    scored = [(score, candidate) for score, candidate in scored if score > 0]
+    if not scored:
+        return match_result
+    scored.sort(key=lambda item: (item[0], item[1].score), reverse=True)
+    best_score, best = scored[0]
+    second_score = scored[1][0] if len(scored) > 1 else 0
+    if best_score <= second_score:
+        return match_result
+    return ObjectMatchResult(
+        code=best.code,
+        name=best.name,
+        status="OK",
+        score=best.score,
+        source=f"context_disambiguation_{best.source}",
+        candidates=match_result.candidates,
+    )
+
+
+def _object_context_score(candidate: Any, context: str, flow: str) -> int:
+    candidate_text = normalize_text(f"{candidate.name} {candidate.group_name} {candidate.group_code}")
+    score = 0
+    for context_keywords, object_keywords in _OBJECT_CONTEXT_DISAMBIGUATION_RULES:
+        if not any(keyword in context for keyword in context_keywords):
+            continue
+        if any(keyword in candidate_text for keyword in object_keywords):
+            score += 1
+    if flow == FLOW_BAO_CO and "THUE VAN PHONG" in context and "VAN PHONG" in candidate_text:
+        score += 1
+    return score
+
+
+_OBJECT_CONTEXT_DISAMBIGUATION_RULES = [
+    (("PHI CANG VU", "TIEN CANG VU", "CANG VU"), ("CANG VU HANG HAI", "CANG VU")),
+    (("PHI HOA TIEU", "HOA TIEU"), ("HOA TIEU",)),
+    (("PHI KIEM DICH", "KIEM DICH"), ("KIEM DICH", "KIEM SOAT BENH TAT")),
+    (("PHI KHACH SAN", "TIEN PHONG", "KHACH SAN"), ("KHACH SAN", "DU LICH", "HOTEL")),
+    (("THUE VAN PHONG", "THUE VP"), ("VAN PHONG", "CHO THUE")),
+    (("CUOC VAN CHUYEN", "TIEN VAN CHUYEN", "CUOC VC"), ("VAN TAI", "LOGISTICS", "GIAO NHAN")),
+]
 
 
 def _has_company_signal(text: str) -> bool:
@@ -896,6 +1067,10 @@ def _object_match_error_note(match_result: ObjectMatchResult, object_ml_result: 
     if object_ml_result.status in {"LOW_CONFIDENCE"}:
         return f"{base_note}; ML mã ĐT chưa đủ tin cậy ({object_ml_result.confidence:.2f}, gap {object_ml_result.gap:.2f})"
     return base_note
+
+
+def _can_use_forced_object_code_without_match(rule: Rule) -> bool:
+    return bool(rule.forced_object_code and rule.amount_equals is not None)
 
 
 def _resolve_config_path(value: str | Path, project_root: Path) -> Path:

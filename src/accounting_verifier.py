@@ -47,7 +47,7 @@ class AccountingVerifier:
         if rule and rule.requires_object:
             if not item.object_code or item.object_code == "ERROR":
                 errors.append("Nghiệp vụ bắt buộc mã đối tượng nhưng chưa có mã hợp lệ")
-            object_score = _matched_object_score(item)
+            object_score = 0.0 if _uses_forced_object_code(rule, item) else _matched_object_score(item)
             if object_score and object_score < 80:
                 errors.append("Độ tin cậy mã đối tượng thấp")
 
@@ -64,3 +64,7 @@ def _matched_object_score(item: ProcessedTransaction) -> float:
     if item.matched_candidates:
         return item.matched_candidates[0].score
     return 0.0
+
+
+def _uses_forced_object_code(rule: Rule, item: ProcessedTransaction) -> bool:
+    return bool(rule.forced_object_code and item.object_code == rule.forced_object_code)

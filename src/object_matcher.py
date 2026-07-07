@@ -44,7 +44,7 @@ class ObjectMatcher:
         for idx, (_, _, variant_tokens) in enumerate(self._prepared_objects):
             for token in variant_tokens:
                 self._variant_token_index.setdefault(token, set()).add(idx)
-        self._objects_by_norm_code = {normalize_text(obj.code): obj for obj, _, _ in self._prepared_objects}
+        self._objects_by_norm_code = self._build_code_lookup()
         self._alias_hit_cache: dict[str, list[CatalogObject]] = {}
         self._match_cache: dict[tuple[str, str, str, str], ObjectMatchResult] = {}
         self._unsafe_aliases = self._build_unsafe_aliases()
@@ -372,6 +372,20 @@ class ObjectMatcher:
     def _is_own_company_object(self, obj: CatalogObject) -> bool:
         return self.own_company.is_own_code(obj.code) or self.own_company.is_own_name(obj.name) or self.own_company.is_own_tax_code(obj.tax_code)
 
+    def _build_code_lookup(self) -> dict[str, CatalogObject]:
+        lookup = {normalize_text(obj.code): obj for obj, _, _ in self._prepared_objects}
+        dropped_d_hits: dict[str, list[CatalogObject]] = {}
+        for obj, _, _ in self._prepared_objects:
+            code = normalize_text(obj.code)
+            if not code.startswith("D") or len(code) < 4:
+                continue
+            dropped_d_hits.setdefault(code[1:], []).append(obj)
+        for code, hits in dropped_d_hits.items():
+            equivalent_keys = {_catalog_equivalence_key(obj) for obj in hits}
+            if code not in lookup and len(equivalent_keys) == 1:
+                lookup[code] = hits[0]
+        return lookup
+
 
 def load_catalog(path: str | Path) -> list[CatalogObject]:
     path = Path(path)
@@ -447,12 +461,16 @@ def _safe_get(row: pd.Series, idx: int | None) -> Any:
 
 
 def _object_variants(obj: CatalogObject) -> list[str]:
+    code = clean_string(obj.code)
     variants = [
         normalize_text(obj.name),
         _simplify_name_norm(obj.name),
-        normalize_text(obj.code),
+        normalize_text(code),
         normalize_text(obj.tax_code),
     ]
+    code_norm = normalize_text(code)
+    if code[:1].upper() == "Đ" and code_norm.startswith("D") and len(code_norm) >= 4:
+        variants.append(code_norm[1:])
     return list(dict.fromkeys(variant for variant in variants if variant))
 
 

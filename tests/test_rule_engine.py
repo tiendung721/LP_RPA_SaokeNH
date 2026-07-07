@@ -66,6 +66,41 @@ def test_bank_interest_credit():
     assert match.rule.account == "515"
 
 
+def test_bill_code_prefix_requires_customer_object_when_no_fee_signal():
+    match = engine().match(
+        "bao_co",
+        "ACB",
+        "CTY CP THEP HUNG CUONG 0200654539 STSTMSHP2603102",
+        amount=1100000,
+    )
+    assert match is not None
+    assert match.rule.rule_id == "customer_bill_service_in"
+    assert match.rule.requires_object is True
+
+
+def test_delivery_order_fee_signal_matches_customer_001_amount_rule():
+    match = engine().match(
+        "bao_co",
+        "ACB",
+        "0110449655 TT PHI DO CHO BL STSTMSHP2603104",
+        amount=1100000,
+    )
+    assert match is not None
+    assert match.rule.use_case == "Phí phát lệnh"
+    assert match.rule.forced_object_code == "001"
+    assert match.rule.requires_object is True
+
+
+def test_generic_periodic_outgoing_rules():
+    rent = engine().match("bao_no", "ACB", "LE PHAM TT TIEN THUE VPDD THANH HOA")
+    membership = engine().match("bao_no", "ACB", "CONG TY TNHH LE PHAM CHUYEN PHI HOI VIEN 2026")
+
+    assert rent is not None
+    assert rent.rule.rule_id == "representative_office_rent_out"
+    assert membership is not None
+    assert membership.rule.rule_id == "membership_fee_out"
+
+
 def test_bank_loan_interest_is_vcb_only():
     rule_engine = engine()
     vcb = rule_engine.match("bao_no", "VCB", "TRA LAI VAY")

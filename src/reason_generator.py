@@ -16,6 +16,7 @@ TEMPLATES: dict[tuple[str, str], str] = {
     ("bao_no", "334"): "Trả lương nhân viên",
     ("bao_no", "3331"): "Nộp thuế GTGT",
     ("bao_no", "3333"): "Nộp thuế XNK",
+    ("bao_no", "3334"): "Nộp thuế TNDN",
     ("bao_no", "3335"): "Nộp thuế TNCN",
     ("bao_no", "6421"): "TT phí hải quan",
     ("bao_no", "64211"): "TT phí hải quan",

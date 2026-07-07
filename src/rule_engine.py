@@ -51,6 +51,8 @@ def contains_keyword(normalized_text: str, keyword: str) -> bool:
     keyword_norm = normalize_text(keyword)
     if not normalized_text or not keyword_norm:
         return False
+    if keyword_norm in _PREFIX_KEYWORDS:
+        return re.search(rf"(?<![A-Z0-9]){re.escape(keyword_norm)}[A-Z0-9]*", normalized_text) is not None
     tokens = keyword_norm.split()
     pattern = r"(?<![A-Z0-9])" + r"\s+".join(re.escape(token) for token in tokens) + r"(?![A-Z0-9])"
     return re.search(pattern, normalized_text) is not None
@@ -66,3 +68,6 @@ def _is_strong_keyword(keyword_norm: str) -> bool:
     if keyword_norm.startswith("THUE ") or " THUE " in f" {keyword_norm} ":
         return True
     return keyword_norm in {"VAT", "TCHQ", "BHXH", "BHTN", "BHYT"}
+
+
+_PREFIX_KEYWORDS = {"STSTMSHP"}

@@ -316,3 +316,14 @@ def test_own_company_candidate_is_excluded():
     )
     assert result.status == "OK"
     assert result.code == "PETRO"
+
+
+def test_d_prefixed_code_can_be_resolved_from_dropped_d_alias_when_unique():
+    matcher = ObjectMatcher.from_records(
+        [{"code": "ĐVHN", "name": "Công ty CP đá vôi Hà Nam"}],
+    )
+
+    result = matcher.match(description="LE PHAM CT CHO VHN HD 157", counterparty_hint="VHN")
+
+    assert result.status == "OK"
+    assert result.code == "ĐVHN"
