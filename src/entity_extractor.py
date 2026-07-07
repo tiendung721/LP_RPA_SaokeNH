@@ -117,6 +117,12 @@ def _extract_counterparty_hint(text: str) -> tuple[str, str]:
         ("co_so_before_chuyen_tien", r"^(CO SO\s+.{3,80}?)(?=\s+CHUYEN TIEN\b)"),
         ("cp_vietnam_corporation", r"\b(CP VIETNAM CORPORATION)\b"),
         ("english_company_prefix", r"^(.{3,100}?\b(?:COMPANY LIMITED|CO LTD|CORPORATION|COMPANY|LTD))(?=\s|$)"),
+        ("company_start_before_purpose", r"^(?:CONG TY|CTY|CT)\s+([A-Z0-9]{2,80}?)(?=\s+(?:TAM UNG|THANH TOAN|TT|CHUYEN)\b)"),
+        (
+            "company_prefix_before_transfer",
+            r"\b(?:(?:CONG TY|CTY|C TY)(?:\s+(?:TNHH|CP|CO PHAN))?|CT\s+(?:TNHH|CP))\s+(.{3,120}?)(?=\s+(?:CHUYEN KHOAN|CHUYEN TIEN|THANH TOAN|TT|TAM UNG|NOP)\b)",
+        ),
+        ("tt_phi_cang_vu", r"\bTT\s+PHI\s+(CANG\s+VU\s+.+?)(?=\s+(?:TAU|ST|SO|HD|GD)\b|$)"),
         ("cho", r"\bCHO\s+(.+)"),
         (
             "company_prefix",
@@ -148,12 +154,18 @@ def _clean_counterparty_segment(segment: str) -> str:
     if " CHO " in segment:
         segment = segment.rsplit(" CHO ", 1)[-1].strip()
     segment = _cut_counterparty_noise(segment)
+    segment = re.sub(r"HD\s*\d+.*$", "", segment).strip()
     stop_pattern = (
         r"\b(?:THEO|HD|HOA DON|SO HD|BANG KE|BILL|BL|KY HOA DON|TAU|LAN|MST|MA SO THUE"
-        r"|TAM UNG|UNG TIEN|THANH TOAN|CHUYEN TIEN|PAYMENT|PHI CAP LENH|LAY LENH"
-        r"|PHI DO|PHI D O|PHI DICH VU)\b|\bTHANG\s+\d"
+        r"|TAM UNG|UNG TIEN|THANH TOAN|CHUYEN TIEN|CHUYEN KHOAN|PAYMENT|PHI CAP LENH|LAY LENH"
+        r"|PHI DO|PHI D O|PHI DICH VU|PHI DAI LY|PHI CANG VU|PHI LAM TAU|CONG NO)\b|\bTHANG\s+\d"
     )
     segment = re.split(stop_pattern, segment, maxsplit=1)[0]
+    segment = re.sub(
+        r"\b(?:DICH VU VAN TAI BIEN|DICH VU VAN TAI|THUONG MAI VA VAN TAI|THUONG MAI|VAN TAI BIEN|VAN TAI|DICH VU)\b",
+        " ",
+        segment,
+    )
     segment = re.sub(r"\b(CTY|CT|CONG TY|TNHH|CO PHAN|CP|COMPANY|LIMITED|LTD|JSC|CORPORATION)\b", " ", segment)
     segment = re.sub(r"[^A-Z0-9]+", " ", segment)
     tokens = [token for token in segment.split() if token not in {"CUOC", "PHI", "DICH"}]

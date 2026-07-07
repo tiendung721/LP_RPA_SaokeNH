@@ -22,7 +22,8 @@ from .flows import (
     MONEY_UNKNOWN,
 )
 from .foreign_exchange import extract_foreign_exchange, format_foreign_exchange_reason
-from .models import CatalogObject, ClassificationResult, ExtractedEntities, ObjectMatchResult, ObjectRankResult, ProcessedTransaction, Rule, Transaction
+from .historical_memory import HistoricalMemoryMatch, HistoricalMemoryMatcher
+from .models import CatalogObject, ClassificationResult, ExtractedEntities, ObjectCandidate, ObjectMatchResult, ObjectRankResult, ProcessedTransaction, Rule, Transaction
 from .normalizer import normalize_text
 from .object_aliases import load_object_aliases
 from .object_matcher import ObjectMatcher, load_catalog
@@ -119,6 +120,7 @@ def process_all(
         supplemental_objects=object_overrides.get(INTERNAL_OBJECT_CATALOG, {}).get("supplemental_objects", []),
         own_company=own_company,
     )
+    historical_memory = _load_historical_memory(config, project_root, logger)
 
     rules, rule_source = load_rules(rules_path, default_rules_path, logger=logger)
     logger.info("Rule source: %s", rule_source)
@@ -189,6 +191,7 @@ def process_all(
                 classifier=classifier,
                 object_ranker=object_ranker,
                 rules=rules,
+                historical_memory=historical_memory,
             )
             processed.append(item)
 
@@ -218,6 +221,7 @@ def process_transaction(
     classifier: TransactionClassifier | None = None,
     object_ranker: ObjectRanker | None = None,
     rules: list[Rule] | None = None,
+    historical_memory: HistoricalMemoryMatcher | None = None,
 ) -> ProcessedTransaction:
     errors: list[str] = []
     bank_direction, default_flow, amount, direction_errors = _detect_money_direction(transaction)
@@ -432,8 +436,31 @@ def process_transaction(
         if verification.status != "OK":
             errors.append(verification.error_note)
 
+    if errors and historical_memory and default_flow in {FLOW_BAO_NO, FLOW_BAO_CO}:
+        historical_match = historical_memory.match(
+            transaction,
+            default_flow,
+            amount,
+            counterparty_hint=entities.counterparty_hint,
+        )
+        if historical_match:
+            _apply_historical_match(item, historical_match, bank_account)
+            errors = []
+            if verifier:
+                verification = verifier.verify(item, None)
+                item.verification_result = verification
+                if verification.status != "OK":
+                    errors.append(verification.error_note)
+
     status = "OK" if not errors else "ERROR"
-    if status == "OK" and not _has_required_rpa_fields(transaction, object_code, reason, debit_account, credit_account, amount):
+    if status == "OK" and not _has_required_rpa_fields(
+        transaction,
+        item.object_code,
+        item.reason,
+        item.debit_account,
+        item.credit_account,
+        item.amount,
+    ):
         status = "ERROR"
         errors.append("Thiếu trường bắt buộc để ghi RPA input")
 
@@ -587,6 +614,21 @@ def _default_object_code_for_rule(rule: Rule, bank: str, config: dict[str, Any])
     if rule.default_object_from_bank:
         return str((config.get("bank_object_codes") or {}).get(bank, "") or "").strip()
     return ""
+
+
+def _load_historical_memory(config: dict[str, Any], project_root: Path, logger: logging.Logger) -> HistoricalMemoryMatcher:
+    memory_cfg = config.get("historical_memory", {}) or {}
+    if not bool(memory_cfg.get("enabled", False)):
+        return HistoricalMemoryMatcher([])
+    path = _resolve_config_path(memory_cfg.get("file", "input/thong_ke.xlsx"), project_root)
+    matcher = HistoricalMemoryMatcher.from_excel(
+        path,
+        min_unique_similarity=float(memory_cfg.get("min_unique_similarity", 35)),
+        min_ambiguous_similarity=float(memory_cfg.get("min_ambiguous_similarity", 70)),
+        min_ambiguous_gap=float(memory_cfg.get("min_ambiguous_gap", 8)),
+    )
+    logger.info("Load historical memory từ %s: %s dòng", path, len(matcher.records))
+    return matcher
 
 
 def _mark_duplicate_transactions(items: list[ProcessedTransaction]) -> int:
@@ -775,6 +817,32 @@ def _has_required_rpa_fields(
     amount: float,
 ) -> bool:
     return bool(transaction.transaction_date and reason and debit_account and credit_account and amount > 0 and object_code != "ERROR")
+
+
+def _apply_historical_match(item: ProcessedTransaction, historical_match: HistoricalMemoryMatch, bank_account: str) -> None:
+    item.flow = historical_match.flow
+    if historical_match.flow == FLOW_BAO_NO:
+        item.debit_account = historical_match.account
+        item.credit_account = bank_account
+    elif historical_match.flow == FLOW_BAO_CO:
+        item.debit_account = bank_account
+        item.credit_account = historical_match.account
+    item.object_code = historical_match.code
+    item.object_name = historical_match.name
+    item.reason = historical_match.reason
+    item.use_case = item.use_case or historical_match.reason
+    item.confidence = round(max(item.confidence, 0.95, min(historical_match.score / 100, 0.99)), 4)
+    item.matched_rule = "historical_memory"
+    item.object_match_source = historical_match.source
+    item.matched_candidates = [
+        ObjectCandidate(
+            code=historical_match.code,
+            name=historical_match.name,
+            score=historical_match.score,
+            source=historical_match.source,
+            matched_on=f"{historical_match.source_file}:{historical_match.source_row}",
+        )
+    ]
 
 
 def _object_rank_context(

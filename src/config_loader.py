@@ -30,6 +30,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "object_overrides_file": "config/object_overrides.yaml",
     "reason_aliases_file": "config/reason_aliases.yaml",
     "internal_objects_file": "input/MA NOI BO CTY.xlsx",
+    "historical_memory": {
+        "enabled": True,
+        "file": "input/thong_ke.xlsx",
+        "min_unique_similarity": 35,
+        "min_ambiguous_similarity": 70,
+        "min_ambiguous_gap": 8,
+    },
     "ml": {
         "enabled": False,
         "object_ranker_enabled": True,

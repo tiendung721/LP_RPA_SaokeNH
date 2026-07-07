@@ -14,6 +14,13 @@ class MSBParser(BaseBankParser):
         "counterparty_raw": [
             "NGUOI HUONG NGUOI CHUYEN PAYEE PAYER",
             "NGUOI HUONG NGUOI CHUYEN",
+            "NGUOI HUONG",
+            "NGUOI CHUYEN",
+            "NGUOI THU HUONG",
+            "TEN NGUOI THU HUONG",
+            "BENEFICIARY",
+            "PAYEE",
+            "PAYER",
             "PAYEE PAYER",
         ],
         "description": ["DIEN GIAI TRANSACTION DESCRIPTION", "TRANSACTION DESCRIPTION"],

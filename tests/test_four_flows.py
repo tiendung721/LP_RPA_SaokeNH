@@ -163,6 +163,22 @@ def test_parsers_read_real_acb_vcb_msb_and_skip_msb_totals():
     assert msb_parser.skipped_row_count >= 3
 
 
+def test_msb_parser_accepts_beneficiary_counterparty_headers():
+    parser = MSBParser()
+    column_map = parser._match_header(
+        [
+            "Ngay giao dich/Transaction Date",
+            "So but toan/Reference No",
+            "Nguoi thu huong/Beneficiary",
+            "Dien giai/Transaction Description",
+            "No/Debit",
+            "Co/Credit",
+        ]
+    )
+
+    assert column_map["counterparty_raw"] == 2
+
+
 def test_bao_co_rules_use_specific_accounts_before_customer_receivable():
     customer = [{"code": "ABC", "name": "Cong ty ABC"}]
     assert _process("ABC THANH TOAN CONG NO HD 123", credit=100, counterparty="ABC", receivable=customer).credit_account == "131"
@@ -179,7 +195,11 @@ def test_bao_co_rules_use_specific_accounts_before_customer_receivable():
     assert msb_fx.credit_account == "1122HB"
     assert msb_fx.object_code == "MSBHB"
     assert _process("GIAI NGAN KHOAN VAY", credit=100).credit_account == "34111"
-    assert _process("LE NGOC DUC HOAN VAY", credit=100).credit_account != "34111"
+    hoan_vay = _process("6097IBT1k1L92BMY-HOAN VAY", credit=100, bank="MSB", counterparty="9936363615/LE NGOC DUC")
+    assert hoan_vay.status == "OK"
+    assert hoan_vay.credit_account == "141"
+    assert hoan_vay.object_code == "DUC"
+    assert hoan_vay.matched_rule == "personal_advance_refund_to_company"
     fx1 = _process("M1HH/KHDN/ MUA TU BAO CO SO TIEN 42000 USD, TY GIA 26.217", credit=1101114000, bank="ACB")
     assert fx1.status == "OK"
     assert fx1.credit_account == "1122CT"
@@ -360,6 +380,15 @@ def test_tax_and_bank_loan_interest_default_objects():
     xnk = _process("NOP THUE HAI QUAN THUE XNK", debit=100, bank="VCB")
     assert xnk.debit_account == "3333"
     assert xnk.object_code == "CUCTHUE"
+    import_vat = _process(
+        "2604136868002202.MS0200410388;Ch554;HQ01B1;LHA11;TK10814236393;NTK13042026;Thue;TM1702(VA);ST9234971",
+        debit=9234971,
+        bank="VCB",
+    )
+    assert import_vat.status == "OK"
+    assert import_vat.debit_account == "33312"
+    assert import_vat.object_code == "HQHP"
+    assert import_vat.reason == "Nộp thuế GTGT hàng nhập khẩu theo tờ khai 10814236393"
 
     vcb_interest = _process("TRA LAI VAY", debit=100, bank="VCB")
     assert vcb_interest.status == "OK"
@@ -370,6 +399,22 @@ def test_tax_and_bank_loan_interest_default_objects():
     acb_interest = _process("TRA LAI VAY", debit=100, bank="ACB")
     assert acb_interest.status == "ERROR"
     assert acb_interest.object_code != "ACB"
+
+
+def test_customer_refund_out_uses_receivable_catalog():
+    result = _process(
+        "IBBIZ.6062736612.6110BFTVG231VAJ7.CT TNHH LE PHAM HOAN TIEN CHO CT TAN BINH TAU TAN BINH 234",
+        debit=9160233,
+        bank="VCB",
+        receivable=[{"code": "TANBINH", "name": "Công ty TNHH Tân Bình"}],
+    )
+
+    assert result.status == "OK"
+    assert result.flow == FLOW_BAO_NO
+    assert result.debit_account == "131"
+    assert result.credit_account == "1121VCB"
+    assert result.object_code == "TANBINH"
+    assert result.matched_rule == "customer_refund_out"
 
 
 def test_acb_exception_patterns_pass_with_approved_overrides():

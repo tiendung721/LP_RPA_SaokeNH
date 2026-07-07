@@ -152,6 +152,26 @@ rules:
     reason_template: "Nộp thuế xuất khẩu theo tờ khai: {declaration_no}"
 
   - flow: bao_no
+    rule_id: "customs_import_vat_tax"
+    direction: "money_out"
+    use_case: "Nop thue GTGT hang nhap khau"
+    account: "33312"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TM1702"
+    context_keywords:
+      - "MS0200410388"
+      - "THUE"
+      - "TK"
+    exclude_keywords: []
+    auto_process: true
+    priority: 32
+    requires_object: false
+    object_catalog: none
+    default_object_code: "HQHP"
+    reason_template: "Nộp thuế GTGT hàng nhập khẩu theo tờ khai {declaration_no}"
+
+  - flow: bao_no
     use_case: "Trả thuế TNDN"
     account: "3334"
     bank_scope: ["VCB", "ACB", "MSB"]
@@ -473,6 +493,29 @@ rules:
     reason_template: "TT phi hoi vien"
 
   - flow: bao_no
+    rule_id: "customer_refund_out"
+    direction: "money_out"
+    use_case: "Hoan tien/hoan phi cho khach"
+    account: "131"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "HOAN TIEN CHO"
+      - "HOAN TRA PHI"
+      - "HOAN LAI TIEN THUA"
+      - "CHUYEN TRA LAI TIEN"
+      - "TRA LAI TIEN"
+    context_keywords: []
+    exclude_keywords:
+      - "HOAN VAY"
+      - "HOAN UNG"
+      - "TAM UNG"
+    auto_process: true
+    priority: 96
+    requires_object: true
+    object_catalog: receivable
+    reason_template: "Hoàn trả tiền ({object_name})"
+
+  - flow: bao_no
     use_case: "Chi phí thanh toán"
     account: "331"
     bank_scope: ["VCB", "ACB", "MSB"]
@@ -570,6 +613,29 @@ rules:
     priority: 18
     requires_object: false
     object_catalog: none
+
+  - flow: bao_co
+    rule_id: "personal_advance_refund_to_company"
+    direction: "money_in"
+    use_case: "Ca nhan hoan vay/tam ung cho cong ty"
+    account: "141"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "HOAN VAY"
+      - "CA NHAN HOAN VAY"
+    context_keywords: []
+    exclude_keywords:
+      - "TAI KHOAN VAY"
+      - "TK VAY"
+      - "NGAN HANG"
+      - "GIAI NGAN"
+      - "THU NO"
+      - "TRA NO"
+    auto_process: true
+    priority: 18
+    requires_object: true
+    object_catalog: internal
+    reason_template: "Nhận hoàn vay cá nhân {object_code}"
 
   - flow: bao_co
     rule_id: "personal_advance_to_company"

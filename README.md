@@ -24,7 +24,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ## 2. Output Cho RPA
 
-File chạy tạm cho RPA: `output/rpa_input.xlsx`
+backendFile chạy tạm cho RPA: `output/rpa_input.xlsx`
 
 - `BAO_NO_INPUT`: chỉ dòng báo nợ OK để RPA nhập luồng báo nợ ngân hàng.
 - `BAO_CO_INPUT`: chỉ dòng báo có OK để RPA nhập luồng báo có ngân hàng.

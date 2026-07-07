@@ -4,6 +4,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from src.config_loader import load_config, load_rules
+from src.historical_memory import HistoricalMemoryMatch
 from src.ml.object_ranker import ObjectRanker
 from src.models import ExtractedEntities, ObjectCandidate, ProcessedTransaction, Rule, Transaction
 from src.object_matcher import ObjectMatcher
@@ -116,6 +117,54 @@ def test_process_transaction_uses_strong_cross_catalog_fallback():
     assert result.status == "OK"
     assert result.object_code == "CROSS"
     assert result.object_match_source == "cross_catalog_payable_alias_match"
+
+
+class _FakeHistoricalMemory:
+    def match(self, transaction, flow, amount, counterparty_hint=""):
+        return HistoricalMemoryMatch(
+            code="VIETSUN",
+            name="Công ty TNHH MTV Kho Vận Vietsun Hải Phòng",
+            reason="TT cước vận chuyển",
+            flow="bao_no",
+            account="331",
+            source="historical_memory:BC_STG11",
+            source_file="BC_STG11 2026.xlsx",
+            source_row="1",
+            score=100,
+            description_score=100,
+            hint_score=0,
+        )
+
+
+def test_process_transaction_uses_historical_memory_for_unresolved_rows():
+    txn = Transaction(
+        source_file="sample.xlsx",
+        bank="VCB",
+        transaction_date=date(2026, 4, 7),
+        doc_no="1",
+        description="IBBIZ.6061077412.6097BFTVG2SP729L.CTY LEPHAM VIETSUN HARMONY 1611S",
+        counterparty_raw="",
+        debit_amount=31_400_000,
+        credit_amount=0,
+        original_row_index=26,
+    )
+
+    result = process_transaction(
+        txn,
+        _config(),
+        _engine(),
+        ObjectMatcher([]),
+        ObjectMatcher([]),
+        historical_memory=_FakeHistoricalMemory(),
+    )
+
+    assert result.status == "OK"
+    assert result.object_code == "VIETSUN"
+    assert result.reason == "TT cước vận chuyển"
+    assert result.debit_account == "331"
+    assert result.credit_account == "1121VCB"
+    assert result.matched_rule == "historical_memory"
+    assert result.object_match_source == "historical_memory:BC_STG11"
 
 
 def test_cross_catalog_fallback_does_not_override_primary_ambiguity():

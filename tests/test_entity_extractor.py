@@ -52,6 +52,30 @@ def test_extract_new_acb_counterparty_patterns():
         assert entities.counterparty_hint == expected_hint
 
 
+def test_extract_vcb_counterparty_patterns_from_historical_exceptions():
+    cases = [
+        (
+            "Cong ty TNHH Dich vu van tai bien Hoang Long chuyen khoan phi dai li tau hl36",
+            "HOANG LONG",
+        ),
+        (
+            "IBBIZ6060693026.CT TNHH LE PHAM TT CHO CT DUC THINHHD 119",
+            "DUC THINH",
+        ),
+        (
+            "IBBIZ6061570941.CONG TY TNHH LE PHAM TT PHI CANG VU BINH THUAN TAU LIAN YI DA 2 HAO, HD 652",
+            "CANG VU BINH THUAN",
+        ),
+        (
+            "cty HB68 tam ung tien dich vu cho cty Le Pham#SP#020097041504231902242026czCW809324",
+            "HB68",
+        ),
+    ]
+    for description, expected_hint in cases:
+        entities = extractor().extract("VCB", description)
+        assert entities.counterparty_hint == expected_hint
+
+
 def test_extract_counterparty_strips_business_purpose_after_company_name():
     entities = extractor().extract("ACB", "CTY VOI SON HOA TAM UNG TIEN VOI-GD-452495")
     assert entities.counterparty_hint == "VOI SON HOA"
