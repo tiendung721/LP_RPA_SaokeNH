@@ -270,6 +270,22 @@ def test_exact_phrase_override_beats_ambiguous_fuzzy_candidates():
     assert result.source == "exact_phrase"
 
 
+def test_exact_phrase_override_can_match_short_weak_phrase():
+    matcher = ObjectMatcher.from_records(
+        [
+            {"code": "VATCACH", "name": "Công ty TNHH Logistics Interserco Vật Cách"},
+            {"code": "ILSHIN TECH", "name": "Công ty TNHH Ilshin Tech Việt Nam"},
+        ],
+        min_score=80,
+        min_gap=8,
+        exact_phrase_overrides={"ILS": "VATCACH"},
+    )
+    result = matcher.match(description="THANH TOAN DICH VU ILS")
+    assert result.status == "OK"
+    assert result.code == "VATCACH"
+    assert result.source == "exact_phrase"
+
+
 def test_generic_short_code_does_not_match_long_context_word():
     matcher = ObjectMatcher.from_records(
         [{"code": "HANH", "name": "Công ty Hoàng Anh"}],
@@ -285,11 +301,12 @@ def test_own_company_candidate_is_excluded():
     matcher = ObjectMatcher.from_records(
         [
             {"code": "LE PHAM", "name": "Công ty TNHH Lê Phạm"},
+            {"code": "PETRO", "name": "Công ty TNHH MTV Petrolimex Hải Phòng"},
             {"code": "PETROLIMEX", "name": "Tổng công ty hóa dầu PETROLIMEX - CTCP"},
         ],
         min_score=80,
         min_gap=8,
-        aliases={"PETROLIMEX": ["PETROLIMEX"]},
+        exact_phrase_overrides={"PETROLIMEX": "PETRO"},
         own_company=own_company,
     )
     result = matcher.match(
@@ -298,4 +315,4 @@ def test_own_company_candidate_is_excluded():
         cleaned_description="THANH TOAN TIEN XANG DAU CHO PETROLIMEX",
     )
     assert result.status == "OK"
-    assert result.code == "PETROLIMEX"
+    assert result.code == "PETRO"

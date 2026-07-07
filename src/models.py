@@ -99,6 +99,9 @@ class ExtractedEntities:
     tax_code: str = ""
     bank_account_hint: str = ""
     service_hint: str = ""
+    declaration_no: str = ""
+    loan_account: str = ""
+    vessel: str = ""
     own_company_hits: list[str] = field(default_factory=list)
 
 

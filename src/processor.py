@@ -22,7 +22,7 @@ from .flows import (
     MONEY_UNKNOWN,
 )
 from .foreign_exchange import extract_foreign_exchange, format_foreign_exchange_reason
-from .models import CatalogObject, ClassificationResult, ObjectMatchResult, ObjectRankResult, ProcessedTransaction, Rule, Transaction
+from .models import CatalogObject, ClassificationResult, ExtractedEntities, ObjectMatchResult, ObjectRankResult, ProcessedTransaction, Rule, Transaction
 from .normalizer import normalize_text
 from .object_aliases import load_object_aliases
 from .object_matcher import ObjectMatcher, load_catalog
@@ -30,7 +30,7 @@ from .object_overrides import load_object_overrides
 from .parsers.acb_parser import ACBParser
 from .parsers.msb_parser import MSBParser
 from .parsers.vcb_parser import VCBParser
-from .reason_aliases import ReasonPurpose, load_reason_purposes
+from .reason_aliases import ReasonPurpose, load_object_name_purposes, load_object_purpose_defaults, load_reason_purposes
 from .reason_generator import clean_reason_value, generate_reason, has_usable_object_code, reason_requires_object_code
 from .rule_engine import RuleEngine
 from .ml.transaction_classifier import TransactionClassifier
@@ -73,6 +73,8 @@ def process_all(
     own_company = OwnCompanyConfig.from_yaml(own_company_path)
     object_aliases = load_object_aliases(aliases_path)
     config["_reason_purposes"] = load_reason_purposes(reason_aliases_path)
+    config["_object_purpose_defaults"] = load_object_purpose_defaults(reason_aliases_path)
+    config["_object_name_purposes"] = load_object_name_purposes(reason_aliases_path)
     overrides_path = _resolve_config_path(config.get("object_overrides_file", "config/object_overrides.yaml"), project_root)
     object_overrides = load_object_overrides(overrides_path)
     entity_extractor = EntityExtractor(own_company)
@@ -109,7 +111,12 @@ def process_all(
         min_gap,
         ambiguous_min_score,
         logger,
-        aliases=object_aliases.get(INTERNAL_OBJECT_CATALOG, {}),
+        aliases=_merge_aliases(
+            object_aliases.get(INTERNAL_OBJECT_CATALOG, {}),
+            object_overrides.get(INTERNAL_OBJECT_CATALOG, {}).get("aliases", {}),
+        ),
+        exact_phrase_overrides=object_overrides.get(INTERNAL_OBJECT_CATALOG, {}).get("exact_phrases", {}),
+        supplemental_objects=object_overrides.get(INTERNAL_OBJECT_CATALOG, {}).get("supplemental_objects", []),
         own_company=own_company,
     )
 
@@ -353,6 +360,9 @@ def process_transaction(
         object_name,
         transaction.description,
         _reason_purposes_for_config(config),
+        _object_purpose_defaults_for_config(config),
+        entities,
+        _object_name_purposes_for_config(config),
     )
     if _is_foreign_exchange_account(flow, debit_account, credit_account):
         reason = format_foreign_exchange_reason(reason, foreign_exchange)
@@ -423,20 +433,12 @@ def _reason_for_transaction(
     object_name: str = "",
     description: str = "",
     purposes: list[ReasonPurpose] | tuple[ReasonPurpose, ...] | None = None,
+    object_purpose_defaults: dict[str, str] | None = None,
+    entities: ExtractedEntities | None = None,
+    object_name_purposes: list[tuple[str, str]] | None = None,
 ) -> str:
     if rule and rule.reason_template:
-        cleaned_object_code = clean_reason_value(object_code)
-        cleaned_object_name = clean_reason_value(object_name)
-        if "{object_code}" in rule.reason_template:
-            if not has_usable_object_code(cleaned_object_code):
-                return ""
-        if "{object_name}" in rule.reason_template:
-            if not cleaned_object_name:
-                return ""
-        return rule.reason_template.format(
-            object_code=cleaned_object_code,
-            object_name=cleaned_object_name,
-        )
+        return _format_reason_template(rule.reason_template, object_code, object_name, entities)
     return generate_reason(
         flow,
         debit_account,
@@ -445,7 +447,41 @@ def _reason_for_transaction(
         object_name=object_name,
         description=description,
         purposes=purposes,
+        object_purpose_defaults=object_purpose_defaults,
+        entities=entities,
+        object_name_purposes=object_name_purposes,
     )
+
+
+def _format_reason_template(
+    template: str,
+    object_code: str,
+    object_name: str,
+    entities: ExtractedEntities | None = None,
+) -> str:
+    cleaned_object_code = clean_reason_value(object_code)
+    cleaned_object_name = clean_reason_value(object_name)
+    values = {
+        "object_code": cleaned_object_code,
+        "object_name": cleaned_object_name,
+        "declaration_no": clean_reason_value(entities.declaration_no if entities else ""),
+        "loan_account": clean_reason_value(entities.loan_account if entities else ""),
+        "vessel": clean_reason_value(entities.vessel if entities else ""),
+        "invoice_no": clean_reason_value(entities.invoice_no if entities else ""),
+    }
+    if "{object_code}" in template and not has_usable_object_code(cleaned_object_code):
+        return ""
+    if "{object_name}" in template and not cleaned_object_name:
+        return ""
+
+    reason = template
+    for key, value in values.items():
+        reason = reason.replace("{" + key + "}", value)
+    reason = re.sub(r"\s+", " ", reason).strip()
+    reason = re.sub(r"\s+([,.;:])", r"\1", reason)
+    reason = re.sub(r"\s*:\s*$", "", reason)
+    reason = re.sub(r"\(\s*\)", "", reason)
+    return reason.strip()
 
 
 def _rule_has_object_free_reason(rule: Rule | None) -> bool:
@@ -600,10 +636,13 @@ def _load_internal_matcher(
     ambiguous_min_score: float,
     logger: logging.Logger,
     aliases: dict[str, list[str]] | None = None,
+    exact_phrase_overrides: dict[str, str] | None = None,
+    supplemental_objects: list[Any] | None = None,
     own_company: OwnCompanyConfig | None = None,
 ) -> ObjectMatcher:
     try:
         objects = [obj for obj in load_catalog(path) if _looks_like_internal_person(obj)]
+        objects.extend(supplemental_objects or [])
         logger.info("Load danh mục nội bộ: %s cá nhân từ %s", len(objects), path)
         return ObjectMatcher(
             objects,
@@ -611,11 +650,17 @@ def _load_internal_matcher(
             min_gap=min_gap,
             ambiguous_min_score=ambiguous_min_score,
             aliases=aliases or {},
+            exact_phrase_overrides=exact_phrase_overrides or {},
             own_company=own_company or OwnCompanyConfig([], [], []),
         )
     except Exception as exc:  # noqa: BLE001
         logger.error("Không load được danh mục nội bộ từ %s: %s", path, exc)
-        return ObjectMatcher([], aliases=aliases or {}, own_company=own_company or OwnCompanyConfig([], [], []))
+        return ObjectMatcher(
+            list(supplemental_objects or []),
+            aliases=aliases or {},
+            exact_phrase_overrides=exact_phrase_overrides or {},
+            own_company=own_company or OwnCompanyConfig([], [], []),
+        )
 
 
 def _looks_like_internal_person(obj: CatalogObject) -> bool:
@@ -678,6 +723,28 @@ def _reason_purposes_for_config(config: dict[str, Any]) -> list[ReasonPurpose]:
     purposes = load_reason_purposes(reason_aliases_path)
     config["_reason_purposes"] = purposes
     return purposes
+
+
+def _object_purpose_defaults_for_config(config: dict[str, Any]) -> dict[str, str]:
+    if "_object_purpose_defaults" in config:
+        return dict(config.get("_object_purpose_defaults") or {})
+
+    project_root = Path(__file__).resolve().parents[1]
+    reason_aliases_path = _resolve_config_path(config.get("reason_aliases_file", "config/reason_aliases.yaml"), project_root)
+    defaults = load_object_purpose_defaults(reason_aliases_path)
+    config["_object_purpose_defaults"] = defaults
+    return defaults
+
+
+def _object_name_purposes_for_config(config: dict[str, Any]) -> list[tuple[str, str]]:
+    if "_object_name_purposes" in config:
+        return list(config.get("_object_name_purposes") or [])
+
+    project_root = Path(__file__).resolve().parents[1]
+    reason_aliases_path = _resolve_config_path(config.get("reason_aliases_file", "config/reason_aliases.yaml"), project_root)
+    rules = load_object_name_purposes(reason_aliases_path)
+    config["_object_name_purposes"] = rules
+    return rules
 
 
 def _has_required_rpa_fields(
@@ -779,7 +846,7 @@ def _company_advance_fallback(
             object_catalog="payable",
             rule_id="advance_company_payable",
             direction=active_rule.direction,
-            reason_template="Tạm ứng tiền hàng {object_code}",
+            reason_template="Tạm ứng tiền hàng ({object_name})",
         ),
         payable_result,
     )

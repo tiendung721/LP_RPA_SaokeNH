@@ -57,6 +57,23 @@ rules:
     object_catalog: none
 
   - flow: bao_no
+    rule_id: "aaa_insurance_fee_out"
+    direction: "money_out"
+    use_case: "Trả phí bảo hiểm AAA"
+    account: "331"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "BAO HIEM AAA"
+      - "BAOHIEMAAA"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 9
+    requires_object: true
+    object_catalog: payable
+    reason_template: "TT phí bảo hiểm AAA"
+
+  - flow: bao_no
     use_case: "Bảo hiểm"
     account: "338"
     bank_scope: ["VCB", "ACB", "MSB"]
@@ -106,7 +123,7 @@ rules:
       - "CUC HAI QUAN"
       - "CHI CUC HAI QUAN"
     context_keywords: ["NOP THUE", "HAI QUAN", "TCHQ", "KBNN", "KHO BAC"]
-    exclude_keywords: []
+    exclude_keywords: ["TM1851", "TM2663", "HQTP247"]
     auto_process: true
     priority: 30
     requires_object: false
@@ -115,11 +132,32 @@ rules:
     context_required: true
 
   - flow: bao_no
+    rule_id: "customs_export_tax"
+    direction: "money_out"
+    use_case: "Nộp thuế xuất khẩu"
+    account: "3333"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TM1851"
+    context_keywords:
+      - "MS0200410388"
+      - "THUE"
+      - "TK"
+    exclude_keywords: []
+    auto_process: true
+    priority: 31
+    requires_object: false
+    object_catalog: none
+    default_object_code: "HQHP"
+    reason_template: "Nộp thuế xuất khẩu theo tờ khai: {declaration_no}"
+
+  - flow: bao_no
     use_case: "Trả thuế TNDN"
     account: "3334"
     bank_scope: ["VCB", "ACB", "MSB"]
     include_keywords: ["THUE TNDN", "TNDN", "THUE TNDN TAM NOP"]
-    context_keywords: ["NOP THUE", "NTDT", "KHO BAC", "KBNN", "TKNS", "CQT", "LTHUE"]
+    context_keywords:
+      ["NOP THUE", "NTDT", "KHO BAC", "KBNN", "TKNS", "CQT", "LTHUE"]
     exclude_keywords: []
     auto_process: true
     priority: 40
@@ -132,7 +170,8 @@ rules:
     account: "3335"
     bank_scope: ["VCB", "ACB", "MSB"]
     include_keywords: ["THUE TNCN", "TNCN"]
-    context_keywords: ["NOP THUE", "NTDT", "KHO BAC", "KBNN", "TKNS", "CQT", "LTHUE"]
+    context_keywords:
+      ["NOP THUE", "NTDT", "KHO BAC", "KBNN", "TKNS", "CQT", "LTHUE"]
     exclude_keywords: ["TNDN", "THUE TNDN"]
     auto_process: true
     priority: 50
@@ -200,7 +239,7 @@ rules:
 
   - flow: bao_no
     use_case: "Trả phí hải quan"
-    account: "6421"
+    account: "64211"
     bank_scope: ["VCB", "ACB", "MSB"]
     include_keywords: ["PHI HAI QUAN", "LE PHI HAI QUAN", "PHI HQ", "LE PHI HQ"]
     context_keywords: []
@@ -214,10 +253,67 @@ rules:
     object_catalog: none
 
   - flow: bao_no
+    rule_id: "customs_fee"
+    direction: "money_out"
+    use_case: "Trả phí hải quan tờ khai xuất khẩu"
+    account: "64211"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TM2663"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 75
+    requires_object: false
+    object_catalog: none
+    default_object_code: "HQHP"
+    reason_template: "TT phí hải quan tờ khai xuất khẩu"
+
+  - flow: bao_no
+    rule_id: "port_infra_fee_hqtp247"
+    direction: "money_out"
+    use_case: "Trả phí hạ tầng công nghệ"
+    account: "331"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "HQTP247"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 76
+    requires_object: false
+    object_catalog: none
+    default_object_code: "CVDUONGTHUY"
+    reason_template: "TT phí hạ tầng công nghệ"
+
+  - flow: bao_no
+    rule_id: "loan_account_repayment"
+    direction: "money_out"
+    use_case: "Thanh toán tài khoản vay"
+    account: "34111"
+    bank_scope: ["VCB"]
+    include_keywords:
+      - "THANH TOAN TK VAY"
+      - "TT TAI KHOAN VAY"
+      - "TT TKV"
+      - "TRANSFERTT TKV"
+    context_keywords: []
+    exclude_keywords:
+      - "LAI VAY"
+      - "TRA LAI"
+      - "TIEN LAI"
+    auto_process: true
+    priority: 82
+    requires_object: false
+    object_catalog: none
+    default_object_from_bank: true
+    reason_template: "TT tài khoản vay {loan_account}"
+
+  - flow: bao_no
     rule_id: "loan_principal_repayment"
     direction: "money_out"
     use_case: "Trả nợ vay ngân hàng"
-    account: "341"
+    account: "34111"
     bank_scope: ["VCB", "ACB", "MSB"]
     include_keywords:
       - "TRA NO VAY"
@@ -283,6 +379,61 @@ rules:
     requires_object: false
     object_catalog: none
     default_object_from_bank: true
+
+  - flow: bao_no
+    rule_id: "electricity_bill"
+    direction: "money_out"
+    use_case: "Trả tiền điện"
+    account: "331"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TIEN DIEN"
+      - "HOA DON TIEN DIEN"
+      - "HD TIEN DIEN"
+    context_keywords: []
+    exclude_keywords:
+      - "TIEN DIEN NUOC"
+    auto_process: true
+    priority: 91
+    requires_object: false
+    object_catalog: none
+    default_object_code: "DLUC"
+    reason_template: "TT tiền điện"
+
+  - flow: bao_no
+    rule_id: "water_bill"
+    direction: "money_out"
+    use_case: "Trả tiền nước"
+    account: "331"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TIEN NUOC"
+      - "HOA DON TIEN NUOC"
+    context_keywords: []
+    exclude_keywords:
+      - "TIEN DIEN NUOC"
+    auto_process: true
+    priority: 92
+    requires_object: false
+    object_catalog: none
+    default_object_code: "CAPNUOC"
+    reason_template: "TT tiền nước"
+
+  - flow: bao_no
+    rule_id: "fuel_payment"
+    direction: "money_out"
+    use_case: "Trả tiền xăng dầu"
+    account: "331"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TIEN XANG DAU"
+      - "XANG DAU"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 93
+    requires_object: true
+    object_catalog: payable
 
   - flow: bao_no
     use_case: "Chi phí thanh toán"
@@ -364,7 +515,7 @@ rules:
     rule_id: "loan_disbursement"
     direction: "money_in"
     use_case: "Nhận tiền vay hoặc giải ngân"
-    account: "341"
+    account: "34111"
     bank_scope: ["VCB", "ACB", "MSB"]
     include_keywords:
       - "GIAI NGAN"
@@ -424,6 +575,57 @@ rules:
     priority: 20
     requires_object: true
     object_catalog: internal
+
+  - flow: bao_co
+    rule_id: "aaa_insurance_fee_in"
+    direction: "money_in"
+    use_case: "Thu phí bảo hiểm AAA"
+    account: "131"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "BAO HIEM AAA"
+      - "BAOHIEMAAA"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 69
+    requires_object: true
+    object_catalog: receivable
+    reason_template: "TT phí bảo hiểm AAA"
+
+  - flow: bao_co
+    rule_id: "delivery_order_fee_in"
+    direction: "money_in"
+    use_case: "Thu phí cấp lệnh"
+    account: "131"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "PHI CAP LENH"
+      - "PHI CAP LENH BILL"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 70
+    requires_object: false
+    object_catalog: none
+    default_object_code: "001"
+    reason_template: "TT phí cấp lệnh (Khách lẻ)"
+
+  - flow: bao_co
+    rule_id: "utilities_reimbursement_in"
+    direction: "money_in"
+    use_case: "Thu hoàn trả điện nước/thuê nhà"
+    account: "131"
+    bank_scope: ["VCB", "ACB", "MSB"]
+    include_keywords:
+      - "TIEN DIEN NUOC"
+      - "TIEN THUE NHA"
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 90
+    requires_object: true
+    object_catalog: receivable
 
   - flow: bao_co
     rule_id: "customer_receivable_contextual_transfer"
@@ -492,6 +694,10 @@ rules:
       - "MUA KET SAT"
       - "CHUYEN KHOAN"
       - "TRA TIEN"
+      - "TRA CP"
+      - "TRA CHI PHI"
+      - "CHI PHI TAU"
+      - "CP TAU"
       - "THANH TOAN CONG NO"
       - "CONG NO"
       - "HD"

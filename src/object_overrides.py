@@ -17,6 +17,7 @@ def load_object_overrides(path: str | Path | None) -> dict[str, dict[str, Any]]:
     return {
         "receivable": _catalog_overrides(data.get("receivable", {})),
         "payable": _catalog_overrides(data.get("payable", {})),
+        "internal": _catalog_overrides(data.get("internal", {})),
     }
 
 

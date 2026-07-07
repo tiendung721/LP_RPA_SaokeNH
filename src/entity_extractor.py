@@ -72,6 +72,9 @@ class EntityExtractor:
         tax_code = _extract_first(r"(?:MST|MA SO THUE|TAX CODE)\s*(\d{8,14})", normalized_description)
         bank_account_hint = _extract_first(r"(?:CK 24 7 CHO|CHO)\s*(\d{6,20})", cleaned_description)
         service_hint = _extract_service(cleaned_description)
+        declaration_no = _extract_declaration_no(normalized_description)
+        loan_account = _extract_loan_account(normalized_description)
+        vessel = _extract_vessel(normalized_description)
         cash_person_name, cash_person_source = _extract_cash_person_name(normalized_description, normalized_counterparty)
 
         counterparty_hint = ""
@@ -94,6 +97,9 @@ class EntityExtractor:
             tax_code=tax_code,
             bank_account_hint=bank_account_hint,
             service_hint=service_hint,
+            declaration_no=declaration_no,
+            loan_account=loan_account,
+            vessel=vessel,
             own_company_hits=own_hits,
         )
 
@@ -227,6 +233,35 @@ def _extract_service(text: str) -> str:
         match = re.search(pattern, text)
         if match:
             return _clean_counterparty_segment(match.group(1))
+    return ""
+
+
+def _extract_declaration_no(text: str) -> str:
+    return _extract_first(r"\bTK\s*(\d{10,11})\b", text)
+
+
+def _extract_loan_account(text: str) -> str:
+    patterns = [
+        r"\bTK\s+VAY\s+00\s+(\d{3,4})\b",
+        r"\bTK\s+VAY\s+(?:00)?(\d{6,20})\b",
+        r"\bTKV\s+(\d{6,20})\b",
+    ]
+    for pattern in patterns:
+        value = _extract_first(pattern, text)
+        if value:
+            return f"00...{value[-4:]}"
+    return ""
+
+
+def _extract_vessel(text: str) -> str:
+    for pattern in [
+        r"\bTIEN\s+TAU\s+([A-Z][A-Z0-9 ]{1,60}?)(?=\s+(?:CHO|CUA|TAI|ST|SO|HD|GD|TG|BL|BILL|THEO|REF)\b|\s+\d{4,}\b|$)",
+        r"\b(?:TAU|MV|M V)\s+([A-Z][A-Z0-9 ]{1,60}?)(?=\s+(?:ST|SO|HD|GD|TG|BL|BILL|THEO|REF)\b|\s+\d{4,}\b|$)",
+    ]:
+        value = _extract_first(pattern, text)
+        if value:
+            value = re.sub(r"\b(?:ST|SO|HD|GD|TG|BL|BILL|THEO|REF)\b.*$", "", value).strip()
+            return re.sub(r"\s+", " ", value)
     return ""
 
 

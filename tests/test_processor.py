@@ -93,7 +93,7 @@ def test_generate_reason_uses_payment_purpose_and_object_name():
             description="TT CUOC VC CHO PIL",
             purposes=purposes,
         )
-        == "Thanh toán cước vận chuyển Công ty PIL Việt Nam"
+        == "TT cước vận chuyển (Công ty PIL Việt Nam)"
     )
     assert (
         generate_reason(
@@ -105,7 +105,7 @@ def test_generate_reason_uses_payment_purpose_and_object_name():
             description="TT TIEN XANG DAU PETROLIMEX",
             purposes=purposes,
         )
-        == "Thanh toán tiền xăng dầu Tong cong ty hoa dau PETROLIMEX - CTCP"
+        == "TT tiền xăng dầu (Tong cong ty hoa dau PETROLIMEX - CTCP)"
     )
     assert (
         generate_reason(
@@ -117,15 +117,48 @@ def test_generate_reason_uses_payment_purpose_and_object_name():
             description="TT TIEN THUE VP",
             purposes=purposes,
         )
-        == "Thu tiền thuê văn phòng Công ty TNHH Minh Huy"
+        == "TT tiền thuê văn phòng (Công ty TNHH Minh Huy)"
     )
-    assert generate_reason("bao_no", "331", "1121CT", "PIL") == "Thanh toán PIL"
-    assert generate_reason("bao_co", "1121VCB", "131", "KVIII") == "Thu tiền KVIII"
+    assert generate_reason("bao_no", "331", "1121CT", "PIL") == "TT tiền hàng (PIL)"
+    assert generate_reason("bao_co", "1121VCB", "131", "KVIII") == "Thanh toán (KVIII)"
     assert generate_reason("bao_no", "141", "1121CT", "KHÁCH A") == "Tạm ứng cá nhân KHÁCH A"
     assert generate_reason("bao_no", "334", "1121CT", "") == "Trả lương nhân viên"
     assert generate_reason("bao_co", "1121VCB", "515", "") == "Lãi tiền gửi ngân hàng"
     assert reason_requires_object_code("bao_no", "331", "1121CT")
     assert not reason_requires_object_code("bao_no", "334", "1121CT")
+
+
+def test_generate_reason_uses_object_purpose_defaults_and_vessel_placeholder():
+    purposes = load_reason_purposes(PROJECT_ROOT / "config" / "reason_aliases.yaml")
+    defaults = {"KBB": "goods", "BIENSAIGON": "ship_payment_with_vessel"}
+
+    assert (
+        generate_reason(
+            "bao_no",
+            "331",
+            "1121CT",
+            "KBB",
+            object_name="Công ty KBB",
+            description="TT CHO KBB HD 359",
+            purposes=purposes,
+            object_purpose_defaults=defaults,
+        )
+        == "TT tiền hàng (Công ty KBB)"
+    )
+    assert (
+        generate_reason(
+            "bao_no",
+            "331",
+            "1121CT",
+            "BIENSAIGON",
+            object_name="Biển Sài Gòn",
+            description="TT CHO BIEN SAI GON",
+            purposes=purposes,
+            object_purpose_defaults=defaults,
+            entities=ExtractedEntities(vessel="ULTRA COEGA"),
+        )
+        == "TT tiền tàu ULTRA COEGA (Biển Sài Gòn)"
+    )
 
 
 def test_process_transaction_reason_uses_object_name_and_payment_purpose():
@@ -153,10 +186,10 @@ def test_process_transaction_reason_uses_object_name_and_payment_purpose():
     assert result.status == "OK"
     assert result.object_code == "PIL"
     assert result.object_name == "Cong ty Khu Vuc III"
-    assert result.reason == "Thanh toán cước vận chuyển Cong ty Khu Vuc III"
+    assert result.reason == "TT cước vận chuyển (Cong ty Khu Vuc III)"
 
 
-def test_process_transaction_bao_co_reason_uses_thu_tien_without_cong_no():
+def test_process_transaction_bao_co_reason_uses_thanh_toan_without_cong_no():
     txn = Transaction(
         source_file="sample.xlsx",
         bank="ACB",
@@ -180,7 +213,7 @@ def test_process_transaction_bao_co_reason_uses_thu_tien_without_cong_no():
 
     assert result.status == "OK"
     assert result.object_code == "KVIII"
-    assert result.reason == "Thu tiền thuê văn phòng Cong ty Khu Vuc III"
+    assert result.reason == "TT tiền thuê văn phòng (Cong ty Khu Vuc III)"
 
 
 def test_missing_object_code_required_for_reason_goes_exception(tmp_path):

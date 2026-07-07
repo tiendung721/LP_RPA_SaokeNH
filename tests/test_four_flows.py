@@ -13,7 +13,14 @@ from src.models import Transaction
 from src.object_aliases import load_object_aliases
 from src.object_matcher import ObjectMatcher
 from src.object_overrides import load_object_overrides
-from src.output_writer import RPA_BUSINESS_COLUMNS, RPA_REASON_UNICODE_COLUMN, RPA_THU_TIEN_MAT_COLUMNS, write_excel, write_outputs
+from src.output_writer import (
+    RPA_BUSINESS_COLUMNS,
+    RPA_CHI_TIEN_MAT_COLUMNS,
+    RPA_REASON_UNICODE_COLUMN,
+    RPA_THU_TIEN_MAT_COLUMNS,
+    write_excel,
+    write_outputs,
+)
 from src.parsers.acb_parser import ACBParser
 from src.parsers.msb_parser import MSBParser
 from src.parsers.vcb_parser import VCBParser
@@ -25,11 +32,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATEMENTS_DIR = PROJECT_ROOT / "input" / "statements"
 INTERNAL_RECORDS = [
     {"code": "DUC", "name": "Lê Ngọc Đức"},
+    {"code": "HOANGANH", "name": "Trịnh Hoàng Anh"},
     {"code": "HOA", "name": "Lê Thị Thanh Hoa"},
     {"code": "VIETHUNG", "name": "Phạm Việt Hùng"},
 ]
 INTERNAL_ALIASES = {
     "DUC": ["LE NGOC DUC", "NGOC DUC"],
+    "HOANGANH": ["TRINH HOANG ANH", "HOANG ANH"],
     "HOA": ["LE THI THANH HOA", "THANH HOA"],
     "VIETHUNG": ["PHAM VIET HUNG", "VIET HUNG"],
 }
@@ -115,7 +124,13 @@ def _real_processing_context():
         supplemental_objects=overrides.get("payable", {}).get("supplemental_objects", []),
         own_company=own_company,
     )
-    internal = ObjectMatcher.from_excel(PROJECT_ROOT / "input" / "MA NOI BO CTY.xlsx", own_company=own_company)
+    internal = ObjectMatcher.from_excel(
+        PROJECT_ROOT / "input" / "MA NOI BO CTY.xlsx",
+        aliases=merge_aliases("internal"),
+        exact_phrase_overrides=overrides.get("internal", {}).get("exact_phrases", {}),
+        supplemental_objects=overrides.get("internal", {}).get("supplemental_objects", []),
+        own_company=own_company,
+    )
     return receivable, payable, internal, EntityExtractor(own_company)
 
 
@@ -163,8 +178,8 @@ def test_bao_co_rules_use_specific_accounts_before_customer_receivable():
     msb_fx = _process("MUA TU BAO CO NGOAI TE THANH TOAN HD", credit=100, bank="MSB", receivable=customer)
     assert msb_fx.credit_account == "1122HB"
     assert msb_fx.object_code == "MSBHB"
-    assert _process("GIAI NGAN KHOAN VAY", credit=100).credit_account == "341"
-    assert _process("LE NGOC DUC HOAN VAY", credit=100).credit_account != "341"
+    assert _process("GIAI NGAN KHOAN VAY", credit=100).credit_account == "34111"
+    assert _process("LE NGOC DUC HOAN VAY", credit=100).credit_account != "34111"
     fx1 = _process("M1HH/KHDN/ MUA TU BAO CO SO TIEN 42000 USD, TY GIA 26.217", credit=1101114000, bank="ACB")
     assert fx1.status == "OK"
     assert fx1.credit_account == "1122CT"
@@ -187,8 +202,8 @@ def test_bao_no_rules_for_forex_loan_and_existing_bank_fee():
     msb_buy = _process("MUA USD", debit=100, bank="MSB")
     assert msb_buy.debit_account == "1122HB"
     assert msb_buy.object_code == "MSBHB"
-    assert _process("THU NO TK VAY 001065887769", debit=100).debit_account == "341"
-    assert _process("TRA GOC KHOAN VAY", debit=100).debit_account == "341"
+    assert _process("THU NO TK VAY 001065887769", debit=100).debit_account == "34111"
+    assert _process("TRA GOC KHOAN VAY", debit=100).debit_account == "34111"
     assert not _process("THANH TOAN USD", debit=100).debit_account.startswith("1122")
     vcb_fee = _process("PHI NGAN HANG", debit=100, bank="VCB")
     assert vcb_fee.debit_account == "635"
@@ -200,6 +215,142 @@ def test_bao_no_rules_for_forex_loan_and_existing_bank_fee():
     assert msb_fee.debit_account == "635"
     assert msb_fee.object_code == "MSBHB"
     assert _process("NOP THUE GTGT THANG 4", debit=100).debit_account == "3331"
+
+
+def test_loan_account_repayment_and_customs_rules_use_templates():
+    loan = _process("IBBIZ.6067857860.Thanh toan TK vay 00....7769", debit=100, bank="VCB")
+    assert loan.status == "OK"
+    assert loan.debit_account == "34111"
+    assert loan.object_code == "VCB"
+    assert loan.reason == "TT tài khoản vay 00...7769"
+    assert loan.matched_rule == "loan_account_repayment"
+
+    tkv = _process("TRANSFERTT TKV 1065887769", debit=100, bank="VCB")
+    assert tkv.status == "OK"
+    assert tkv.debit_account == "34111"
+    assert tkv.reason == "TT tài khoản vay 00...7769"
+
+    export_tax = _process(
+        "2606226868048050.MS0200410388;Ch554;HQ03YY;LHB11;TK30865926994;NTK20062026;Thue;TM1851(XK);ST28625023",
+        debit=28625023,
+        bank="VCB",
+    )
+    assert export_tax.status == "OK"
+    assert export_tax.debit_account == "3333"
+    assert export_tax.object_code == "HQHP"
+    assert export_tax.reason == "Nộp thuế xuất khẩu theo tờ khai: 30865926994"
+
+    customs_fee = _process(
+        "2606306868053212.MS0200410388;Ch554;HQ03YY;LHB11;TK30869474793;NTK30062026;;TM2663(LP);ST20000",
+        debit=20000,
+        bank="VCB",
+    )
+    assert customs_fee.status == "OK"
+    assert customs_fee.debit_account == "64211"
+    assert customs_fee.object_code == "HQHP"
+    assert customs_fee.reason == "TT phí hải quan tờ khai xuất khẩu"
+
+    port_infra = _process(
+        "HQTP247.ID_CT:202620808391;LP:PHT01;DVNP:0200410388;DVTP:31;MA_CQT:1109448;TM:2267;ST:3000000",
+        debit=3000000,
+        bank="VCB",
+    )
+    assert port_infra.status == "OK"
+    assert port_infra.debit_account == "331"
+    assert port_infra.object_code == "CVDUONGTHUY"
+    assert port_infra.reason == "TT phí hạ tầng công nghệ"
+
+    customs_fee_other_amount = _process(
+        "2606046868037169.MS0200410388;Ch554;HQ47NM;LHB11;TK9999999999-5.;NTK28052026;;TM2663(LP);ST240000",
+        debit=240000,
+        bank="VCB",
+    )
+    assert customs_fee_other_amount.status == "OK"
+    assert customs_fee_other_amount.debit_account == "64211"
+    assert customs_fee_other_amount.object_code == "HQHP"
+    assert customs_fee_other_amount.reason == "TT phí hải quan tờ khai xuất khẩu"
+
+
+def test_utility_rules_use_default_objects_and_reasons():
+    electricity = _process("THANH TOAN TIEN DIEN KY HOA DON THANG 4", debit=100, bank="VCB")
+    assert electricity.status == "OK"
+    assert electricity.debit_account == "331"
+    assert electricity.object_code == "DLUC"
+    assert electricity.reason == "TT tiền điện"
+
+    water = _process("HOA DON TIEN NUOC THANG 4", debit=100, bank="ACB")
+    assert water.status == "OK"
+    assert water.debit_account == "331"
+    assert water.object_code == "CAPNUOC"
+    assert water.reason == "TT tiền nước"
+
+
+def test_fuel_payment_petrolimex_uses_petro_object_code():
+    result = _process_real("CT TNHH LE PHAM TT TIEN XANG DAU PETROLIMEX", debit=100)
+
+    assert result.status == "OK"
+    assert result.debit_account == "331"
+    assert result.object_code == "PETRO"
+    assert result.reason.startswith("TT tiền xăng dầu")
+
+
+def test_aaa_insurance_uses_specific_object_code_and_reason():
+    debit = _process_real("CT TNHH LE PHAM THANH TOAN PHI BAO HIEM AAA", debit=100)
+    assert debit.status == "OK"
+    assert debit.flow == FLOW_BAO_NO
+    assert debit.debit_account == "331"
+    assert debit.object_code == "BAOHIEMAAA"
+    assert debit.object_name
+    assert debit.reason == "TT phí bảo hiểm AAA"
+
+    credit = _process_real("BAO HIEM AAA HP THANH TOAN PHI BAO HIEM", credit=100)
+    assert credit.status == "OK"
+    assert credit.flow == FLOW_BAO_CO
+    assert credit.credit_account == "131"
+    assert credit.object_code == "BAOHIEMAAA"
+    assert credit.object_name
+    assert credit.reason == "TT phí bảo hiểm AAA"
+
+
+def test_freight_reason_format_is_shared_for_bao_no_and_bao_co():
+    records = [{"code": "VINHLONG", "name": "Công ty TNHH Vĩnh Long"}]
+    payable = _process(
+        "CT TNHH LE PHAM TT CUOC VAN CHUYEN CHO VINH LONG",
+        debit=100,
+        payable=records,
+    )
+    assert payable.status == "OK"
+    assert payable.flow == FLOW_BAO_NO
+    assert payable.object_code == "VINHLONG"
+    assert payable.reason == "TT cước vận chuyển (Công ty TNHH Vĩnh Long)"
+
+    receivable = _process("VINH LONG TT CUOC VAN CHUYEN", credit=100, receivable=records)
+    assert receivable.status == "OK"
+    assert receivable.flow == FLOW_BAO_CO
+    assert receivable.object_code == "VINHLONG"
+    assert receivable.reason == "TT cước vận chuyển (Công ty TNHH Vĩnh Long)"
+
+
+def test_pil_vietnam_uses_s5_and_fixed_crew_change_reason():
+    result = _process_real("PIL VIETNAM CO LTD PIL PAY INV 584", credit=100)
+
+    assert result.status == "OK"
+    assert result.flow == FLOW_BAO_CO
+    assert result.object_code == "S5 VIET NAM"
+    assert result.reason == "TT phí dịch vụ thay đổi thuyền viên (Chi nhánh công ty TNHH S5 Việt Nam tại Hải Phòng)"
+
+
+def test_taubien_saigon_uses_vessel_in_reason():
+    result = _process_real(
+        "CTY VT VA DL TAU BIEN SAI GON TT TIEN TAU TAO TREASURE CHO CTY LE PHAM",
+        credit=100,
+    )
+
+    assert result.status == "OK"
+    assert result.flow == FLOW_BAO_CO
+    assert result.object_code == "TAUBIENSAIGON"
+    assert result.entities.vessel == "TAO TREASURE"
+    assert result.reason == "TT tiền tàu TAO TREASURE (Công ty TNHH Vận Tải & Đại Lý Tàu Biển Sài Gòn)"
 
 
 def test_tax_and_bank_loan_interest_default_objects():
@@ -224,7 +375,7 @@ def test_tax_and_bank_loan_interest_default_objects():
 def test_acb_exception_patterns_pass_with_approved_overrides():
     receivable_cases = [
         ("CTY NGUYEN KIM 0109912477 STSTMSHP 2604109 GD 6125IBT1FJQI1KNQ", "NGUYENKIM"),
-        ("PIL VIETNAM CO LTD TAX CODE - 0303449450-[3186493995] NHTMCP A CHAU HCM HCM PIL PAY INV 584", "PIL VN"),
+        ("PIL VIETNAM CO LTD TAX CODE - 0303449450-[3186493995] NHTMCP A CHAU HCM HCM PIL PAY INV 584", "S5 VIET NAM"),
         ("CTY TNHH PTXD VA TM 0101101999 PHI PHAT LENH SO BL STSTMSHP2604102", "PTXDVATM"),
         ("TCL SMART DEVICE VIET NAM COMPANY LIMITED-TIEN COC", "THONGMINHTCL"),
         ("CONG TY MINH HUY THANH TON TIEN THUE VAN PHONG VA DIEN NUOC THANG 02 03", "MINHHUY"),
@@ -262,6 +413,13 @@ def test_acb_exception_patterns_pass_with_approved_overrides():
 
 
 def test_bill_issue_fee_receipts_use_customer_001_and_company_reason():
+    simple_fee = _process("KHACH HANG THANH TOAN PHI CAP LENH BILL", credit=100, bank="VCB")
+    assert simple_fee.status == "OK"
+    assert simple_fee.flow == FLOW_BAO_CO
+    assert simple_fee.credit_account == "131"
+    assert simple_fee.object_code == "001"
+    assert simple_fee.reason == "TT phí cấp lệnh (Khách lẻ)"
+
     cases = [
         (
             "CTY TNHH PTXD VA TM 0101101999 PHI PHAT LENH SO BL STSTMSHP2604102",
@@ -298,11 +456,11 @@ def test_bill_issue_fee_receipt_requires_amount_guard():
     assert same_amount_without_fee_signal.object_code == "NGUYENKIM"
 
 
-def test_company_advance_fee_uses_payable_331():
+def test_company_advance_fee_keeps_internal_advance_person():
     advance = _process_real("T UNG CHO HOANG ANH TT PHI NANG HA CHO CT CP CANG HAI PHONG", debit=100)
     assert advance.status == "OK"
-    assert advance.debit_account == "331"
-    assert advance.object_code == "CANG-HP"
+    assert advance.debit_account == "141"
+    assert advance.object_code == "HOANGANH"
 
 
 def test_acb_negative_patterns_stay_manual_review():
@@ -377,7 +535,7 @@ def test_advance_splits_company_payable_and_internal_person():
     assert company.flow == FLOW_BAO_NO
     assert company.debit_account == "331"
     assert company.object_code == "ABC"
-    assert company.reason == "Tạm ứng tiền hàng ABC"
+    assert company.reason == "Tạm ứng tiền hàng (Cong ty ABC)"
 
     person = _process("TAM UNG CHO LE NGOC DUC", debit=100, bank="ACB")
     assert person.status == "OK"
@@ -391,6 +549,17 @@ def test_advance_splits_company_payable_and_internal_person():
     assert alias_person.flow == FLOW_BAO_NO
     assert alias_person.debit_account == "141"
     assert alias_person.object_code == "VIETHUNG"
+
+
+def test_internal_advance_hoang_anh_uses_hoanganh_not_hoang():
+    result = _process_real("TAM UNG CHO HOANG ANH", debit=12960000, bank="ACB")
+
+    assert result.status == "OK"
+    assert result.flow == FLOW_BAO_NO
+    assert result.debit_account == "141"
+    assert result.credit_account == "1121CT"
+    assert result.object_code == "HOANGANH"
+    assert result.reason == "Tạm ứng cá nhân HOANGANH"
 
 
 def test_rule_first_does_not_call_ml_when_rule_matched():
@@ -424,7 +593,12 @@ def test_output_has_four_pad_sheets_with_exchange_rate_column(tmp_path):
 
     for sheet_name in ["BAO_NO_INPUT", "BAO_CO_INPUT", "THU_TIEN_MAT_INPUT", "CHI_TIEN_MAT_INPUT"]:
         assert sheet_name in wb.sheetnames
-        expected_columns = RPA_THU_TIEN_MAT_COLUMNS if sheet_name == "THU_TIEN_MAT_INPUT" else RPA_BUSINESS_COLUMNS
+        if sheet_name == "THU_TIEN_MAT_INPUT":
+            expected_columns = RPA_THU_TIEN_MAT_COLUMNS
+        elif sheet_name == "CHI_TIEN_MAT_INPUT":
+            expected_columns = RPA_CHI_TIEN_MAT_COLUMNS
+        else:
+            expected_columns = RPA_BUSINESS_COLUMNS
         assert [cell.value for cell in wb[sheet_name][1]] == expected_columns
         assert wb[sheet_name].max_column == len(expected_columns)
     assert "RPA_TASKS" in wb.sheetnames
@@ -465,11 +639,11 @@ def test_cash_flows_export_recipient_name(tmp_path):
 
     thu_headers = [cell.value for cell in wb["THU_TIEN_MAT_INPUT"][1]]
     thu_values = dict(zip(thu_headers, [cell.value for cell in wb["THU_TIEN_MAT_INPUT"][2]]))
-    assert thu_values["Người nộp tiền"] == "LE THI THANH HOA"
+    assert thu_values["Người nhận tiền"] == "LE THI THANH HOA"
 
     chi_headers = [cell.value for cell in wb["CHI_TIEN_MAT_INPUT"][1]]
     chi_values = dict(zip(chi_headers, [cell.value for cell in wb["CHI_TIEN_MAT_INPUT"][2]]))
-    assert chi_values["Người nhận tiền"] == "LE THI THANH HOA"
+    assert chi_values["Người nộp tiền"] == "LE THI THANH HOA"
 
 
 def test_integration_process_real_samples_and_write_outputs(tmp_path):
@@ -493,7 +667,12 @@ def test_integration_process_real_samples_and_write_outputs(tmp_path):
     assert not any(item.bank == "MSB" and item.original_row_index >= 118 for item in processed)
     for sheet_name in ["BAO_NO_INPUT", "BAO_CO_INPUT", "THU_TIEN_MAT_INPUT", "CHI_TIEN_MAT_INPUT"]:
         assert sheet_name in wb.sheetnames
-        expected_columns = RPA_THU_TIEN_MAT_COLUMNS if sheet_name == "THU_TIEN_MAT_INPUT" else RPA_BUSINESS_COLUMNS
+        if sheet_name == "THU_TIEN_MAT_INPUT":
+            expected_columns = RPA_THU_TIEN_MAT_COLUMNS
+        elif sheet_name == "CHI_TIEN_MAT_INPUT":
+            expected_columns = RPA_CHI_TIEN_MAT_COLUMNS
+        else:
+            expected_columns = RPA_BUSINESS_COLUMNS
         if config.get("output", {}).get("rpa_reason_encoding") == "tcvn3":
             expected_columns = list(expected_columns)
             expected_columns.insert(expected_columns.index("Lí do") + 1, RPA_REASON_UNICODE_COLUMN)

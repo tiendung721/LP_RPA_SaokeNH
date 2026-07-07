@@ -5,12 +5,14 @@ purposes:
       - "TIEN HANG"
       - "TIENHANG"
       - "TIEN HANGI"
+      - "TIEN VOI"
 
   - code: freight_charge
     label: "cước vận chuyển"
     aliases:
       - "CUOC VAN CHUYEN"
       - "CUOC VC"
+      - "PHI VAN CHUYEN"
 
   - code: transport_payment
     label: "tiền vận chuyển"
@@ -21,13 +23,13 @@ purposes:
     label: "phí cảng"
     aliases:
       - "PHI CANG"
-      - "CANG PHI"
 
   - code: port_authority_fee
     label: "phí cảng vụ"
     aliases:
       - "PHI CANG VU"
       - "TIEN PHI CANG VU"
+      - "TIEN CANG VU"
 
   - code: pilotage_fee
     label: "phí hoa tiêu"
@@ -44,6 +46,7 @@ purposes:
     aliases:
       - "PHI LENH GIAO HANG"
       - "PHI CAP LENH"
+      - "PHI LAY LENH"
       - "PHI BILL"
 
   - code: lift_on_lift_off
@@ -101,11 +104,13 @@ purposes:
     label: "cước viễn thông"
     aliases:
       - "CUOC VIEN THONG"
+      - "TT CUOC VIEN THONG"
 
   - code: courier_charge
     label: "cước chuyển phát"
     aliases:
       - "CUOC CHUYEN PHAT"
+      - "PHI CHUYEN PHAT"
 
   - code: inspection_fee
     label: "phí đăng kiểm"
@@ -117,6 +122,7 @@ purposes:
     aliases:
       - "PHI SU DUNG DUONG BO"
       - "PHI DUONG BO"
+      - "CUOC DUONG BO"
 
   - code: hotel_fee
     label: "phí khách sạn"
@@ -126,7 +132,6 @@ purposes:
   - code: cleaning_fee
     label: "phí vệ sinh"
     aliases:
-      - "PHI DICH VU VE SINH"
       - "PHI VE SINH"
 
   - code: waste_fee
@@ -138,6 +143,8 @@ purposes:
     label: "phí tàu lai"
     aliases:
       - "PHI TAU LAI"
+      - "CUOC TAU LAI"
+      - "PHI LAI DAT"
 
   - code: sea_freight
     label: "cước biển"
@@ -150,3 +157,303 @@ purposes:
     aliases:
       - "PHI THAY DOI THUYEN VIEN"
       - "PHI THAY DOI TV"
+
+  - code: tally_fee
+    label: "phí kiểm đếm"
+    aliases:
+      - "PHI KIEM DEM"
+      - "TT PHI KIEM DEM"
+
+  - code: ship_service_fee
+    label: "phí dịch vụ tàu"
+    aliases:
+      - "PHI DICH VU TAU"
+      - "PHI DV TAU"
+
+  - code: ship_work_fee
+    label: "phí dịch vụ làm tàu"
+    aliases:
+      - "PHI LAM TAU"
+      - "PHI DICH VU LAM TAU"
+
+  - code: port_service_fee
+    label: "phí dịch vụ cảng"
+    aliases:
+      - "PHI DICH VU CANG"
+      - "TAM UNG CANG"
+      - "TAM UNG CHO CANG"
+
+  - code: port_charges
+    label: "tiền cảng phí"
+    aliases:
+      - "CANG PHI"
+      - "TIEN CANG PHI"
+
+  - code: cleaning_service_fee
+    label: "phí dịch vụ vệ sinh"
+    aliases:
+      - "PHI DICH VU VE SINH"
+
+  - code: crew_change_service_fee
+    label: "phí dịch vụ thay đổi thuyền viên"
+    aliases:
+      - "THAY DOI THUYEN VIEN"
+      - "DOI THUYEN VIEN"
+
+  - code: ship_payment_with_vessel
+    label: "tiền tàu {vessel}"
+    aliases:
+      - "TIEN TAU"
+      - "TT TIEN TAU"
+
+  - code: boarding_pass_fee
+    label: "phí cấp thẻ đi bờ"
+    aliases:
+      - "PHI CAP THE DI BO"
+      - "CAP THE DI BO"
+
+  - code: mooring_fee
+    label: "phí neo đậu"
+    aliases:
+      - "PHI NEO DAU"
+
+  - code: wharf_fee
+    label: "phí cầu bến"
+    aliases:
+      - "PHI CAU BEN"
+
+  - code: mobile_charge
+    label: "cước di động"
+    aliases:
+      - "CUOC DI DONG"
+      - "CUOC DIEN THOAI DI DONG"
+
+  # ==== Nghiệp vụ bổ sung, mined từ thong_ke_ma_dt_ly_do_chung_v2 (sheet 02) ====
+  - code: customs_fee
+    label: "phí hải quan"
+    aliases:
+      - "PHI HAI QUAN"
+      - "LE PHI HAI QUAN"
+      - "PHI TO KHAI HAI QUAN"
+      - "PHI HAI QUAN TO KHAI"
+      - "PHI HAI QUAN TK XUAT KHAU"
+
+  - code: agency_fee
+    label: "phí đại lý"
+    aliases:
+      - "PHI DAI LY"
+      - "PHI DAI LY TAU"
+      - "PHI DL TAU"
+
+  - code: document_fee
+    label: "phí chứng từ"
+    aliases:
+      - "PHI CHUNG TU"
+
+  - code: survey_fee
+    label: "phí giám định"
+    aliases:
+      - "PHI GIAM DINH"
+      - "PHI GIAM DINH HANG HOA"
+      - "PHI TEST MAU"
+
+  - code: safe_box
+    label: "tiền két sắt"
+    aliases:
+      - "TIEN KET SAT"
+      - "MUA KET SAT"
+      - "KET SAT"
+
+  - code: guarantee_fee
+    label: "phí bảo lãnh"
+    aliases:
+      - "PHI BAO LANH"
+      - "PHI PHAT HANH BAO LANH"
+      - "PHAT HANH BAO LANH"
+
+  - code: service_maintenance_fee
+    label: "phí duy trì dịch vụ"
+    aliases:
+      - "PHI DUY TRI DICH VU"
+      - "DUY TRI DICH VU"
+
+  - code: crew_lodging_fee
+    label: "phí ăn nghỉ thuyền viên"
+    aliases:
+      - "PHI AN NGHI THUYEN VIEN"
+      - "AN NGHI THUYEN VIEN"
+      - "PHI AN NGHI TV"
+
+  - code: crew_medical_fee
+    label: "viện phí thuyền viên"
+    aliases:
+      - "VIEN PHI THUYEN VIEN"
+      - "VIEN PHI TV"
+      - "PHI KHAM CHUA BENH THUYEN VIEN"
+      - "PHI BENH VIEN THUYEN VIEN"
+
+# Nghiệp vụ suy từ LOẠI đối tượng: khớp từ khoá trên TÊN đối tượng đã match trong danh mục.
+# Là lưới an toàn khi nội dung CK không nêu rõ mục đích VÀ đối tượng không có default riêng
+# ở object_purpose_defaults. Tự phủ cả đối tượng mới cùng loại (vd cảng vụ tỉnh mới).
+object_name_purposes:
+  - keyword: "CANG VU HANG HAI"
+    purpose: port_authority_fee
+  - keyword: "HOA TIEU"
+    purpose: pilotage_fee
+  - keyword: "KIEM DICH"
+    purpose: quarantine_fee
+  - keyword: "KIEM SOAT BENH TAT"
+    purpose: quarantine_fee
+  - keyword: "DIEN LUC"
+    purpose: electricity
+  - keyword: "CAP NUOC"
+    purpose: water
+  - keyword: "THU PHI TU DONG"
+    purpose: road_fee
+  # Bổ sung: tổng quát hoá theo LOẠI đối tượng (mined từ thong_ke_ma_dt_ly_do_chung_v2).
+  - keyword: "CUC HAI QUAN"
+    purpose: customs_fee
+  - keyword: "DANG KIEM"
+    purpose: inspection_fee
+  - keyword: "BUU DIEN"
+    purpose: courier_charge
+  - keyword: "CANG QUOC TE"
+    purpose: port_charges
+  - keyword: "VINACONTROL"
+    purpose: survey_fee
+  - keyword: "VINMEC"
+    purpose: crew_medical_fee
+
+object_purpose_defaults:
+  KBB: goods
+  THIENSON: goods
+  POSCO: goods
+  VINHLONG: freight_charge
+  "LOGISTICS HUYANH": freight_charge
+  NHS: freight_charge
+  AAA: insurance_fee
+  BAOHIEMAAA: insurance_fee
+  VETC: road_fee
+  HAINAM: ship_service_fee
+  VTHAINAM: ship_service_fee
+  INDOCHINA: ship_work_fee
+  "QT CAILAN": port_charges
+  QTCAILAN: port_charges
+  PETRO: fuel
+  PETROLIMEX: fuel
+  MOITRUONGDOTHI: cleaning_service_fee
+  VTQT360: office_rent
+  S5VIETNAM: crew_change_service_fee
+  "S5 VIET NAM": crew_change_service_fee
+  BIENSAIGON: ship_payment_with_vessel
+  TAUBIENSAIGON: ship_payment_with_vessel
+  CANG-HA: port_service_fee
+
+  # ==== Mã ĐT -> nghiệp vụ chủ đạo, suy chuẩn từ sổ cái BC_STG (chỉ giữ nghiệp vụ != tiền hàng,
+  #      đủ số mẫu và tỷ lệ áp đảo). Đối tượng suy được theo LOẠI đã đưa vào object_name_purposes. ====
+  "001": delivery_order_fee
+  MATTROIHALONG: port_charges
+  XMSONGLAM: port_charges
+  XMNS: tugboat_fee
+  BIENPHONGHONGAI: boarding_pass_fee
+  NAMHOASON: freight_charge
+  HANSUNG: port_charges
+  QUOCTEQHP: utilities
+  VSICO: sea_freight
+  VTBNHATMINH: tugboat_fee
+  FORMOSAHATINH: wharf_fee
+  CANGSONDUONG: tugboat_fee
+  HHANBINH: tugboat_fee
+  "OSSTEM INPLANT": utilities
+  VNPTHAIPHONG: telecom_charge
+  KUNNA: utilities
+  QTVINHTAN: port_charges
+  MINHHUY: office_rent
+  MINHPHONGHOPNHAT: utilities
+  SUMO: courier_charge
+  DULICHHATHANH: hotel_fee
+  DVKTNGHISON: mooring_fee
+  LG: freight_charge
+  PHUONGNGAN: freight_charge
+  "TTDD ĐONGBAC": mobile_charge
+  LOGISTICSVIETNAM: utilities
+  CONTAINERHAIAN: sea_freight
+  HAIBINH: freight_charge
+  VINHTUY: office_rent
+  TIENDUNG: freight_charge
+  XNKTHAIMINH: freight_charge
+  DHL: courier_charge
+  TANTIENPHAT: freight_charge
+  TIENTRUONG: freight_charge
+  DUCTUNG: waste_fee
+  CANGHOANGDIEU: port_charges
+  BUUDIEN: courier_charge
+  MAERSK: sea_freight
+  CAYCAUVANG: freight_charge
+  NAMQUIT: freight_charge
+  ANKHANG: freight_charge
+  BONGSEN: office_rent
+  CANGDB12: tugboat_fee
+  CNLONGSON: port_charges
+  DUCTHINH: freight_charge
+  DX: port_charges
+  HHDAIDUONG: tugboat_fee
+  NHANLUCVOSCO: crew_change_service_fee
+  PTSCQUANGBINH: port_charges
+  TANTHANHDAT: freight_charge
+  "THINHAN LUCKY": freight_charge
+  VATTUNHATMINH: freight_charge
+  "WAN HAI": sea_freight
+  BONGSENVANG: office_rent
+  CHAULUC: ship_payment_with_vessel
+  DAITHINHPHAT: freight_charge
+  DANGKIEMGIAOTHONGHP: inspection_fee
+  "THUETAU BIENVN": crew_change_service_fee
+  TVNAMPHUONG: freight_charge
+  MTBPN: waste_fee
+  NOVASTAR: freight_charge
+  VTTM: freight_charge
+  BAOHIEMTHAINGUYEN: insurance_fee
+  DUCLONG: freight_charge
+  LEGENDSEA: ship_service_fee
+  MIPEC: port_charges
+  MYDINH: utilities
+  PHUCTHANH: freight_charge
+  THANHNAM: ship_work_fee
+  TMTRUONGPHAT: freight_charge
+  VICMAC: crew_change_service_fee
+  CANGXANHVIP: lift_on_lift_off
+  "GREEN PEARL": freight_charge
+  HAITHANH: freight_charge
+  HUONGTAM: hotel_fee
+  NAMPHUONG: freight_charge
+  THANHTAN: freight_charge
+  TRANGNGUYEN: freight_charge
+  TUANTHANHTIENPHAT: freight_charge
+  "VANTAI ELITE": crew_change_service_fee
+  VANTAINHATVIET: ship_payment_with_vessel
+  VTBGLS: sea_freight
+  "BAOHIEMDUYEN HAI": insurance_fee
+  HAIOANH: freight_charge
+  "HL PLAZA": hotel_fee
+  HOABINH68: ship_payment_with_vessel
+  HOANGPHUONG: ship_payment_with_vessel
+  INTERSERCOMYDINH: utilities
+  OLDEN: ship_work_fee
+  "PACIFIC LINES": ship_payment_with_vessel
+  QTLAOVIET: port_charges
+  QUANGMINH: hotel_fee
+  TMDAIDUONG: freight_charge
+  "TREE MARINE": ship_service_fee
+  VANTAINAMLONG: freight_charge
+  VINHTHINH: freight_charge
+  VTBCHAUATBD: ship_service_fee
+
+  # ==== Bổ sung đợt v2 (mined từ thong_ke_ma_dt_ly_do_chung_v2, sheet 02): đối tượng có TÊN
+  #      không lộ nghiệp vụ, nghiệp vụ chủ đạo != tiền hàng, tỷ lệ áp đảo, chưa được luật LOẠI phủ. ====
+  HAILONG: port_charges
+  NAMHAI: port_charges
+  KSDAIDUONG: port_charges
+  MINHCONG: office_rent
+  HANOSIMEX: office_rent
+  KETSATANTOAN: safe_box

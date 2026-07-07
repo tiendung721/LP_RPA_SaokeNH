@@ -39,9 +39,19 @@ receivable:
         - BAO HIEM AAA HP
 
   aliases:
-    PIL VN:
+    # Đối tượng vốn phân loại PHẢI THU, phát sinh cả chiều PHẢI THU (nhận tiền/tạm ứng) — giữ ở đây
+    # để khớp được khi diễn giải dùng tên viết tắt. Nguồn: exception sao kê thật.
+    VATCACH:
+      - ILS
+      - INTERSERCO VAT CACH
+    SONHOA:
+      - VOI SON HOA
+      - SAN XUAT VA THUONG MAI VOI SON HOA
+    S5 VIET NAM:
       - PIL VIETNAM CO LTD
       - PIL PAY INV
+      - PIL VIETNAM
+      - PIL VIET NAM
       - "0303449450"
     MINHPHONGHOPNHAT:
       - MINH PHONG HOP NHAT
@@ -81,11 +91,20 @@ receivable:
     HANOSIMEX:
       - CP TMHAI PHONGHANOSIMEX
       - TMHAI PHONGHANOSIMEX
+    TAUBIENSAIGON:
+      - TAU BIEN SAI GON
+      - CTY VT VA DL TAU BIEN SAI GON
+      - CTY TNHH VT VA DL TAU BIEN SAI GON
 
   exact_phrases:
+    ILS: VATCACH
+    INTERSERCO VAT CACH: VATCACH
+    VOI SON HOA: SONHOA
     CTY NGUYEN KIM: NGUYENKIM
     PTXD VA TM: PTXDVATM
-    PIL VIETNAM CO LTD: PIL VN
+    PIL VIETNAM CO LTD: S5 VIET NAM
+    PIL VIETNAM: S5 VIET NAM
+    PIL VIET NAM: S5 VIET NAM
     TCL SMART DEVICE VIET NAM: THONGMINHTCL
     MINH HUY THANH TOAN TIEN THUE: MINHHUY
     CTY SAKAI: SAKAI
@@ -109,6 +128,9 @@ receivable:
     AV THANH TOAN: GIAONHAN AV
     CP TMHAI PHONGHANOSIMEX: HANOSIMEX
     TMHAI PHONGHANOSIMEX: HANOSIMEX
+    TAU BIEN SAI GON: TAUBIENSAIGON
+    CTY VT VA DL TAU BIEN SAI GON: TAUBIENSAIGON
+    CTY TNHH VT VA DL TAU BIEN SAI GON: TAUBIENSAIGON
 
 payable:
   supplemental_objects:
@@ -127,6 +149,38 @@ payable:
       aliases:
         - CANG GAMA
         - TT CANG GAMA
+    - code: PETRO
+      name: Công ty TNHH MTV Petrolimex Hải Phòng
+      aliases:
+        - PETROLIMEX
+        - XANG DAU PETROLIMEX
+    - code: "26868"
+      name: CONG TY TNHH 26868
+      aliases:
+        - CT CHO 268
+        - "268"
+        - "26868"
+    # Đối tượng vốn phân loại PHẢI THU nhưng phát sinh giao dịch PHẢI TRẢ (mua hàng/tạm ứng/thuê)
+    # -> phải có mặt trong danh mục payable thì mới suy ra được Mã ĐT. Nguồn: exception sao kê thật.
+    - code: VATCACH
+      name: Công ty TNHH Logistics Interserco - Vật Cách
+      group_code: PHAITHU
+      aliases:
+        - ILS
+        - INTERSERCO VAT CACH
+        - LOGISTICS INTERSERCO VAT CACH
+    - code: SONHOA
+      name: Công ty TNHH Sản Xuất và Thương Mại Vôi Sơn Hòa
+      group_code: PHAITHU
+      aliases:
+        - VOI SON HOA
+        - SAN XUAT VA THUONG MAI VOI SON HOA
+    - code: SONHAIPHONG
+      name: Công ty cổ phần sơn Hải Phòng
+      group_code: PHAITHU
+      aliases:
+        - SON HAI PHONG
+        - CP SON HAI PHONG
 
   aliases:
     VIETTHAG:
@@ -161,8 +215,13 @@ payable:
     VOI219:
       - VOI CONG NGHIEP VN 219
       - VOI CONG NGHIEP VIET NAM 219
-    PETROLIMEX:
+    PETRO:
       - PETROLIMEX
+      - XANG DAU PETROLIMEX
+    BAOHIEMAAA:
+      - BAO HIEM AAA
+      - BAO HIEM AAA HP
+      - CTY BAO HIEM AAA
     CVHH-QN:
       - CANG VU HH QUANG NINH
       - CANG VU HANG HAI QUANG NINH
@@ -209,8 +268,13 @@ payable:
     BUUDIEN:
       - BUU DIEN TP HP
       - BUU DIEN THANH PHO HAI PHONG
+    S5 VIET NAM:
+      - PIL VIETNAM
+      - PIL VIET NAM
 
   exact_phrases:
+    CHO NHS: NAMHOASON
+    TT CUOC VC CHO NHS: NAMHOASON
     CT VIET THANG: VIETTHAG
     CT CHO THIEN SON: THIENSON
     CT CHO VOI VIET: VOIVIET
@@ -227,7 +291,11 @@ payable:
     VTT SAO VIET: VANTAITHUYSAOVIET
     VOI CONG NGHIEP VN 219: VOI219
     VOI CONG NGHIEP VIET NAM 219: VOI219
-    PETROLIMEX: PETROLIMEX
+    PETROLIMEX: PETRO
+    XANG DAU PETROLIMEX: PETRO
+    BAO HIEM AAA: BAOHIEMAAA
+    BAO HIEM AAA HP: BAOHIEMAAA
+    CTY BAO HIEM AAA: BAOHIEMAAA
     VTB NHAT MINH: VTBNHATMINH
     CANG VU HH QUANG NINH: CVHH-QN
     CANG VU HANG HAI QUANG NINH: CVHH-QN
@@ -260,3 +328,25 @@ payable:
     THANH TOAN TIEN DIEN KY HOA DON THANG: CAPNUOC
     BUU DIEN TP HP: BUUDIEN
     BUU DIEN THANH PHO HAI PHONG: BUUDIEN
+    ILS: VATCACH
+    INTERSERCO VAT CACH: VATCACH
+    VOI SON HOA: SONHOA
+    SON HAI PHONG: SONHAIPHONG
+    CP SON HAI PHONG: SONHAIPHONG
+    TM DL HA THANH: DULICHHATHANH
+    DL HA THANH: DULICHHATHANH
+    DU LICH HA THANH: DULICHHATHANH
+    PIL VIETNAM: S5 VIET NAM
+    PIL VIET NAM: S5 VIET NAM
+
+internal:
+  supplemental_objects:
+    - code: HOANGANH
+      name: Trịnh Hoàng Anh
+      aliases:
+        - TRINH HOANG ANH
+        - HOANG ANH
+        - HOANGANH
+      exact_phrases:
+        - TRINH HOANG ANH
+        - HOANG ANH

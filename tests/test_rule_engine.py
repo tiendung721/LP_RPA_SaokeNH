@@ -35,10 +35,23 @@ def test_insurance_not_auto_processed():
 
 
 def test_insurance_fee_not_auto_processed():
-    match = engine().match("bao_no", "ACB", "THANH TOAN PHI BAO HIEM CHO CTY BAO HIEM AAA")
+    match = engine().match("bao_no", "ACB", "THANH TOAN PHI BAO HIEM CHO CTY BAO HIEM ABC")
     assert match is not None
     assert match.rule.use_case == "Bảo hiểm"
     assert match.rule.auto_process is False
+
+
+def test_aaa_insurance_fee_is_auto_processed_before_generic_insurance():
+    debit = engine().match("bao_no", "ACB", "THANH TOAN PHI BAO HIEM AAA")
+    credit = engine().match("bao_co", "ACB", "BAO HIEM AAA HP THANH TOAN PHI BAO HIEM")
+
+    assert debit is not None
+    assert debit.rule.rule_id == "aaa_insurance_fee_out"
+    assert debit.rule.account == "331"
+    assert debit.rule.auto_process is True
+    assert credit is not None
+    assert credit.rule.rule_id == "aaa_insurance_fee_in"
+    assert credit.rule.account == "131"
 
 
 def test_acb_salary():

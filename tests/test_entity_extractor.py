@@ -61,3 +61,20 @@ def test_extract_cash_person_name_from_cash_descriptions():
         entities = extractor().extract("ACB", description)
         assert entities.cash_person_name == "LE THI THANH HOA"
         assert entities.cash_person_source == "acb_cash_marker"
+
+
+def test_extract_template_entities_for_customs_loan_and_vessel():
+    customs = extractor().extract(
+        "VCB",
+        "2606226868048050.MS0200410388;Ch554;HQ03YY;LHB11;TK30865926994;NTK20062026;Thue;TM1851(XK)",
+    )
+    assert customs.declaration_no == "30865926994"
+
+    masked = extractor().extract("VCB", "IBBIZ.6067857860.Thanh toan TK vay 00....7769")
+    assert masked.loan_account == "00...7769"
+
+    full = extractor().extract("VCB", "TRANSFERTT TKV 1065887769")
+    assert full.loan_account == "00...7769"
+
+    vessel = extractor().extract("ACB", "CT TNHH LE PHAM TT CANG GAMA. TAU ULTRA COEGA, ST 22376.67, TG 26125.")
+    assert vessel.vessel == "ULTRA COEGA"

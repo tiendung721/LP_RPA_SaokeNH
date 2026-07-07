@@ -51,6 +51,19 @@ RPA_THU_TIEN_MAT_COLUMNS = [
     "Ngày CT",
     "Mã ĐT",
     "Lí do",
+    "Người nhận tiền",
+    "TK nợ",
+    "TK có",
+    "Thành tiền",
+    "Tỷ giá",
+    "Ngân hàng",
+    "transaction_uid",
+    "run_id",
+] + RPA_INPUT_STATUS_COLUMNS
+RPA_CHI_TIEN_MAT_COLUMNS = [
+    "Ngày CT",
+    "Mã ĐT",
+    "Lí do",
     "Người nộp tiền",
     "TK nợ",
     "TK có",
@@ -72,6 +85,49 @@ RPA_TRACKING_COLUMNS = [
 RPA_COLUMNS = RPA_BUSINESS_COLUMNS
 RPA_REASON_ENCODING_TCVN3 = "tcvn3"
 RPA_REASON_UNICODE_COLUMN = "Lí do Unicode"
+EXCEPTION_REVIEW_COLUMNS = [
+    "Duyệt nhập RPA",
+    "Luồng nhập RPA",
+    "Trạng thái xử lý exception",
+    "Lỗi còn thiếu",
+    "Promoted to input",
+    "Promoted sheet",
+    "Promoted at",
+]
+EXCEPTION_COLUMNS = [
+    "Mã định danh",
+    "File gốc",
+    "Sheet gốc",
+    "Dòng gốc",
+    "Ngân hàng",
+    "Luồng",
+    "Ngày CT",
+    "Nội dung giao dịch gốc",
+    "Người hưởng/Người chuyển",
+    "Người nhận tiền",
+    "Người nộp tiền",
+    "Mã ĐT",
+    "Tên ĐT suy luận",
+    "Lí do",
+    RPA_REASON_UNICODE_COLUMN,
+    "TK nợ",
+    "TK có",
+    "Thành tiền",
+    "Ngoại tệ",
+    "Số tiền ngoại tệ",
+    "Tỷ giá",
+    "Use case dự đoán",
+    "Trạng thái",
+    "Trạng thái RPA",
+    "Thông báo RPA",
+    "transaction_uid",
+    "run_id",
+    "Ghi chú lỗi",
+    "Độ tin cậy",
+    "Nguồn match ĐT",
+    "Counterparty hint",
+    *EXCEPTION_REVIEW_COLUMNS,
+]
 RPA_TASK_COLUMNS = [
     "run_id",
     "task_id",
@@ -154,7 +210,14 @@ def write_excel(
         )
         for flow, items in flow_items.items()
     }
-    exception_df = pd.DataFrame([_exception_record(item) for item in processed if item.status != "OK"])
+    exception_df = pd.DataFrame(
+        [
+            _exception_record(item, run_id=run_id, reason_encoding=rpa_reason_encoding)
+            for item in processed
+            if item.status != "OK"
+        ],
+        columns=EXCEPTION_COLUMNS,
+    )
     manual_review_df = pd.DataFrame([_manual_review_record(item) for item in processed if item.status != "OK"])
     audit_df = pd.DataFrame([_audit_record(item) for item in processed])
     parser_warnings_df = pd.DataFrame((run_stats or {}).get("parser_warnings", []))
@@ -632,7 +695,11 @@ def _is_tcvn3_reason_encoding(encoding: str = "") -> bool:
     return str(encoding or "").strip().lower() == RPA_REASON_ENCODING_TCVN3
 
 
-def _exception_record(item: ProcessedTransaction) -> dict[str, Any]:
+def _exception_record(
+    item: ProcessedTransaction,
+    run_id: str | None = None,
+    reason_encoding: str = "",
+) -> dict[str, Any]:
     return {
         "Mã định danh": item.transaction_uid,
         "File gốc": item.source_file,
@@ -640,12 +707,16 @@ def _exception_record(item: ProcessedTransaction) -> dict[str, Any]:
         "Dòng gốc": item.original_row_index,
         "Ngân hàng": item.bank,
         "Luồng": item.flow,
+        "Luồng nhập RPA": item.flow,
         "Ngày CT": item.transaction_date,
         "Nội dung giao dịch gốc": item.original_content,
         "Người hưởng/Người chuyển": item.counterparty_raw,
         "Người nhận tiền": _cash_recipient_name(item),
+        "Người nộp tiền": _cash_recipient_name(item),
         "Mã ĐT": item.object_code,
         "Tên ĐT suy luận": item.object_name,
+        "Lí do": _rpa_reason(item.reason, reason_encoding),
+        RPA_REASON_UNICODE_COLUMN: item.reason,
         "TK nợ": item.debit_account,
         "TK có": item.credit_account,
         "Thành tiền": item.amount,
@@ -657,10 +728,17 @@ def _exception_record(item: ProcessedTransaction) -> dict[str, Any]:
         "Trạng thái RPA": item.rpa_status,
         "Thông báo RPA": item.rpa_message,
         "transaction_uid": item.transaction_uid,
+        "run_id": run_id or "",
         "Ghi chú lỗi": item.error_note,
         "Độ tin cậy": item.confidence,
         "Nguồn match ĐT": item.object_match_source,
         "Counterparty hint": item.entities.counterparty_hint,
+        "Duyệt nhập RPA": "",
+        "Trạng thái xử lý exception": "",
+        "Lỗi còn thiếu": "",
+        "Promoted to input": "",
+        "Promoted sheet": "",
+        "Promoted at": "",
     }
 
 
@@ -1055,6 +1133,8 @@ def _cash_recipient_name(item: ProcessedTransaction) -> str:
 def _rpa_columns_for_flow(flow: str, reason_encoding: str = "") -> list[str]:
     if flow == FLOW_THU_TIEN_MAT:
         columns = list(RPA_THU_TIEN_MAT_COLUMNS)
+    elif flow == FLOW_CHI_TIEN_MAT:
+        columns = list(RPA_CHI_TIEN_MAT_COLUMNS)
     else:
         columns = list(RPA_BUSINESS_COLUMNS)
     if _is_tcvn3_reason_encoding(reason_encoding):
