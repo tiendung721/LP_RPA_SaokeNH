@@ -457,6 +457,32 @@ def test_acb_exception_patterns_pass_with_approved_overrides():
         assert result.object_code == object_code
 
 
+def test_real_acb_june_configured_abbreviation_objects_do_not_fall_to_exception():
+    payable_cases = [
+        ("CT TNHH LE PHAM TT CHO CVU HH BINH THUAN . CONG NO THEO BANG KE DINH KEM", "CVHH-BINHTHUAN"),
+        ("CTY LE PHAM TT CHO CVU THANH HOA. CONG NO THEO BANG KE.", "CVHH-THANHHOA"),
+        ("CT TNHH LE PHAM TT CHO CT TM VT NHAT MINH HD 554", "VATTUNHATMINH"),
+        ("CTY LE PHAM TT CHO CANG CONG TE NO QT CAI LAN. TAU QI YUAN 17", "QTCAILAN"),
+        ("CTY LE PHAM TT CHO TT KS BENH TAT THANH HOA. CONG NO THEO BANG KE", "KDYT-TH"),
+        ("CT TNHH LE PHAM TT CHO CTCP TD LOGISTICS QT HD 240", "LOGISTICS QUOCTE"),
+        ("LE PHAM THANH TOAN TIEN BAO DUONG XE OTO CHO TOYOTA", "TOYOTA"),
+    ]
+    for description, object_code in payable_cases:
+        result = _process_real(description, debit=100)
+        assert result.status == "OK"
+        assert result.object_code == object_code
+
+    receivable_cases = [
+        ("CTY BONG SEN TT TIEN DIEN, NUOC CHO CTY TNHH LE PHAM; HD: 892", "BONGSEN"),
+        ("MBVCB.14903541098.340878.CTY BINH MINH, STSTMSHP2606109", "BINHMINH"),
+        ("CTY CP DAO TAO VA CUNG UNG NHAN LUC VOS TT TIEN DICH VU THAY THUYEN VIEN", "NHANLUCVOSCO"),
+    ]
+    for description, object_code in receivable_cases:
+        result = _process_real(description, credit=100)
+        assert result.status == "OK"
+        assert result.object_code == object_code
+
+
 def test_bill_issue_fee_receipts_use_customer_001_and_company_reason():
     simple_fee = _process("KHACH HANG THANH TOAN PHI CAP LENH BILL", credit=100, bank="VCB")
     assert simple_fee.status == "OK"

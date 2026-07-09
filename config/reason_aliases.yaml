@@ -292,6 +292,32 @@ purposes:
       - "PHI KHAM CHUA BENH THUYEN VIEN"
       - "PHI BENH VIEN THUYEN VIEN"
 
+  # ==== Nghiệp vụ bổ sung đợt 2026-07 (mined Nhóm B từ thong_ke.xlsx sheet 01: lý do lặp ổn định
+  #      nhưng chưa có nghiệp vụ). Đi kèm object_purpose_defaults tương ứng ở cuối file. ====
+  - code: phong_nghi
+    label: "tiền phòng nghỉ"
+    aliases:
+      - "TIEN PHONG NGHI"
+      - "PHONG NGHI"
+
+  - code: cong_chung
+    label: "phí công chứng"
+    aliases:
+      - "PHI CONG CHUNG"
+      - "CONG CHUNG"
+
+  - code: loc_dau
+    label: "phí lọc dầu"
+    aliases:
+      - "PHI LOC DAU"
+      - "LOC DAU"
+
+  - code: xe_to
+    label: "phí xe ô tô"
+    aliases:
+      - "PHI XE O TO"
+      - "XE O TO"
+
 # Nghiệp vụ suy từ LOẠI đối tượng: khớp từ khoá trên TÊN đối tượng đã match trong danh mục.
 # Là lưới an toàn khi nội dung CK không nêu rõ mục đích VÀ đối tượng không có default riêng
 # ở object_purpose_defaults. Tự phủ cả đối tượng mới cùng loại (vd cảng vụ tỉnh mới).
@@ -457,3 +483,13 @@ object_purpose_defaults:
   MINHCONG: office_rent
   HANOSIMEX: office_rent
   KETSATANTOAN: safe_box
+
+  # ==== Bổ sung đợt 2026-07 (mined từ thong_ke.xlsx sheet 01; report-only đã duyệt).
+  #      Nhóm A trỏ nghiệp vụ sẵn có; Nhóm B trỏ 4 nghiệp vụ mới thêm ở phần purposes. ====
+  PHSHIP: sea_freight
+  VIETSEA: ship_work_fee
+  "CANG-HP": lift_on_lift_off
+  KSLEPHAM: phong_nghi
+  NHANHOA: cong_chung
+  THIENMA: loc_dau
+  TOYOTATL: xe_to
