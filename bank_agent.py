@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--payable", help="File danh mục đối tượng phải trả")
     parser.add_argument("--output-dir", default="output", help="Thư mục output")
     parser.add_argument("--config", default="config/config.yaml", help="File config YAML")
-    return parser.parse_args()
+    return parser.parse_args()  
 
 
 def main() -> int:

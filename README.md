@@ -53,6 +53,17 @@ File review mã đối tượng: `output/object_match_review.xlsx`
 - `OBJECT_ERRORS`: các dòng còn lỗi `Mã ĐT`, top candidates và nhóm nguyên nhân.
 - `SUMMARY`: thống kê theo nhóm lỗi, ngân hàng, use case và hint.
 
+Khi người dùng mở `output/rpa_input.xlsx` để bỏ bớt dòng trước khi PAD nhập:
+
+- Nên xóa cả dòng trong Excel bằng thao tác Delete row; hide/filter dòng không làm PAD bỏ qua.
+- Nếu người dùng lỡ chỉ xóa nội dung ô, hãy chạy bước dọn file trước khi PAD đọc lại workbook:
+
+```powershell
+.\.venv\Scripts\python.exe sanitize_rpa_input.py --input-file ".\output\rpa_input.xlsx"
+```
+
+- Trong PAD, chèn command trên ngay sau bước `PROMOTE_REVIEWED_EXCEPTIONS` thành công và trước bước `ARCHIVE_RPA_INPUT`/đọc các sheet `*_INPUT`. Với nhánh chạy file input cũ, chèn sau `PROMOTE_REVIEWED_EXCEPTIONS_OLD_FILE`.
+
 File trạng thái bền vững: `output/rpa_summary.xlsx`
 
 - Sheet `RPA_SUMMARY` lưu từng giao dịch theo `transaction_uid`, file/sheet/dòng gốc và trạng thái RPA.
