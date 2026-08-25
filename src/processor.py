@@ -23,7 +23,7 @@ from .flows import (
 )
 from .foreign_exchange import extract_foreign_exchange, format_foreign_exchange_reason
 from .historical_memory import HistoricalMemoryMatch, HistoricalMemoryMatcher
-from .models import CatalogObject, ClassificationResult, ExtractedEntities, ObjectCandidate, ObjectMatchResult, ObjectRankResult, ProcessedTransaction, Rule, Transaction
+from .models import CatalogObject, ExtractedEntities, ObjectCandidate, ObjectMatchResult, ProcessedTransaction, Rule, Transaction
 from .normalizer import normalize_text
 from .object_aliases import load_object_aliases
 from .object_matcher import ObjectMatcher, load_catalog
@@ -34,8 +34,6 @@ from .parsers.vcb_parser import VCBParser
 from .reason_aliases import ReasonPurpose, load_object_name_purposes, load_object_purpose_defaults, load_reason_purposes
 from .reason_generator import clean_reason_value, generate_reason, has_usable_object_code, reason_requires_object_code
 from .rule_engine import RuleEngine
-from .ml.transaction_classifier import TransactionClassifier
-from .ml.object_ranker import ObjectRanker
 from .transaction_identity import assign_transaction_uids, build_transaction_uid, transaction_fingerprint
 
 
@@ -126,27 +124,6 @@ def process_all(
     logger.info("Rule source: %s", rule_source)
     rule_engine = RuleEngine(rules)
 
-    ml_cfg = config.get("ml", {})
-    classifier = TransactionClassifier(
-        model_path=_resolve_config_path(ml_cfg.get("transaction_classifier_model", "models/transaction_classifier.joblib"), project_root),
-        enabled=bool(ml_cfg.get("enabled", True)),
-    )
-    if classifier.available:
-        logger.info("ML transaction classifier loaded")
-    else:
-        logger.info("ML transaction classifier not found; using rule/entity/fuzzy fallback")
-
-    object_ranker = ObjectRanker(
-        model_path=_resolve_config_path(ml_cfg.get("object_ranker_model", "models/object_ranker.joblib"), project_root),
-        enabled=bool(ml_cfg.get("enabled", True)) and bool(ml_cfg.get("object_ranker_enabled", True)),
-        min_confidence=float(ml_cfg.get("min_object_confidence", 0.85)),
-        min_gap=float(ml_cfg.get("min_object_gap", 0.15)),
-    )
-    if object_ranker.available:
-        logger.info("ML object ranker loaded")
-    else:
-        logger.info("ML object ranker not found; using deterministic object matcher")
-
     statement_files = list_statement_files(statements_dir)
     logger.info("Đọc được %s file sao kê", len(statement_files))
 
@@ -188,9 +165,6 @@ def process_all(
                 internal_matcher=internal_matcher,
                 entity_extractor=entity_extractor,
                 verifier=verifier,
-                classifier=classifier,
-                object_ranker=object_ranker,
-                rules=rules,
                 historical_memory=historical_memory,
             )
             processed.append(item)
@@ -218,9 +192,6 @@ def process_transaction(
     internal_matcher: ObjectMatcher | None = None,
     entity_extractor: EntityExtractor | None = None,
     verifier: AccountingVerifier | None = None,
-    classifier: TransactionClassifier | None = None,
-    object_ranker: ObjectRanker | None = None,
-    rules: list[Rule] | None = None,
     historical_memory: HistoricalMemoryMatcher | None = None,
 ) -> ProcessedTransaction:
     errors: list[str] = []
@@ -244,22 +215,11 @@ def process_transaction(
     transaction_matching_cfg = config.get("matching", {})
 
     rule_match = None
-    ml_result = ClassificationResult()
-    ml_is_usable = False
     if default_flow in {FLOW_BAO_NO, FLOW_BAO_CO}:
         search_text = f"{transaction.counterparty_raw} {transaction.description}".strip()
         rule_match = _match_rule_for_direction(rule_engine, bank_direction, transaction.bank, search_text, amount)
         if rule_match:
             flow = rule_match.rule.flow
-        elif classifier:
-            ml_result = classifier.predict(default_flow, transaction.bank, transaction.description, entities)
-            ml_min_confidence = float(config.get("ml", {}).get("min_classification_confidence", 0.75))
-            ml_is_usable = ml_result.status == "OK" and ml_result.confidence >= ml_min_confidence
-            if not ml_is_usable:
-                if ml_result.status == "OK":
-                    errors.append(f"ML confidence thấp ({ml_result.confidence:.2f})")
-                else:
-                    errors.append("Không nhận diện được use case")
         else:
             errors.append("Không nhận diện được use case")
     else:
@@ -271,7 +231,6 @@ def process_transaction(
     object_code = ""
     object_name = ""
     match_result = ObjectMatchResult()
-    object_ml_result = ObjectRankResult()
     confidence = 0.0
     matched_rule = ""
     active_rule: Rule | None = None
@@ -281,12 +240,6 @@ def process_transaction(
         matched_rule = active_rule.rule_id or active_rule.use_case
         use_case = active_rule.use_case
         confidence = rule_match.confidence
-    elif ml_is_usable:
-        use_case = ml_result.use_case
-        confidence = ml_result.confidence
-        active_rule = _rule_for_ml_result(flow, ml_result, rules or [])
-        matched_rule = "ML"
-
     if active_rule:
         debit_account, credit_account = _accounts_for_flow(flow, active_rule, bank_account, transaction.bank, config)
 
@@ -350,29 +303,8 @@ def process_transaction(
                 )
                 confidence = confidence or 1.0
             else:
-                if object_ranker and match_result.candidates:
-                    object_ml_result = object_ranker.rank(
-                        _object_rank_context(transaction, flow, use_case, active_rule.account, active_rule.object_catalog, entities),
-                        match_result.candidates,
-                    )
-                    if object_ml_result.status == "OK":
-                        match_result = _match_result_from_object_ml(object_ml_result)
-                        object_code = match_result.code
-                        object_name = match_result.name
-                        confidence = min(confidence or 1.0, object_ml_result.confidence)
-                    else:
-                        object_code = "ERROR"
-                        errors.append(_object_match_error_note(match_result, object_ml_result))
-                else:
-                    object_code = "ERROR"
-                    errors.append(match_result.error_note or "Không tìm thấy mã đối tượng")
-    elif ml_is_usable:
-        if flow == FLOW_BAO_NO:
-            debit_account = ml_result.account
-            credit_account = bank_account
-        elif flow == FLOW_BAO_CO:
-            debit_account = bank_account
-            credit_account = ml_result.account
+                object_code = "ERROR"
+                errors.append(match_result.error_note or "Không tìm thấy mã đối tượng")
 
     reason = _reason_for_transaction(
         active_rule,
@@ -387,7 +319,11 @@ def process_transaction(
         entities,
         _object_name_purposes_for_config(config),
     )
-    if _is_foreign_exchange_account(flow, debit_account, credit_account):
+    # A configured reason template is an explicit accounting decision. Keep it
+    # verbatim; only enrich generated FX reasons with amount/currency/rate data.
+    if _is_foreign_exchange_account(flow, debit_account, credit_account) and not (
+        active_rule and active_rule.reason_template
+    ):
         reason = format_foreign_exchange_reason(reason, foreign_exchange)
     if (
         not _rule_has_object_free_reason(active_rule)
@@ -420,8 +356,6 @@ def process_transaction(
         matched_rule=matched_rule,
         raw_data=transaction.raw_data,
         entities=entities,
-        ml_result=ml_result,
-        object_ml_result=object_ml_result,
         object_match_source=match_result.source,
         source_sheet=transaction.source_sheet,
         bank_direction=bank_direction,
@@ -845,29 +779,6 @@ def _apply_historical_match(item: ProcessedTransaction, historical_match: Histor
     ]
 
 
-def _object_rank_context(
-    transaction: Transaction,
-    flow: str,
-    use_case: str,
-    account: str,
-    catalog: str,
-    entities: Any,
-) -> dict[str, Any]:
-    return {
-        "bank": transaction.bank,
-        "flow": flow,
-        "catalog": catalog,
-        "use_case": use_case,
-        "account": account,
-        "description": transaction.description,
-        "normalized_content": normalize_text(transaction.description),
-        "counterparty_raw": transaction.counterparty_raw,
-        "counterparty_hint": entities.counterparty_hint,
-        "service_hint": entities.service_hint,
-        "tax_code": entities.tax_code,
-    }
-
-
 def _match_rule_object(
     rule: Rule,
     payable_matcher: ObjectMatcher,
@@ -1116,27 +1027,6 @@ def _has_company_signal(text: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in patterns)
 
 
-def _match_result_from_object_ml(result: ObjectRankResult) -> ObjectMatchResult:
-    best = result.ranked_candidates[0] if result.ranked_candidates else None
-    if not best:
-        return ObjectMatchResult(status="NOT_FOUND", error_note="Không tìm thấy mã đối tượng")
-    return ObjectMatchResult(
-        code=best.code,
-        name=best.name,
-        status="OK",
-        score=result.confidence * 100,
-        source="ml_object_ranker",
-        candidates=result.ranked_candidates,
-    )
-
-
-def _object_match_error_note(match_result: ObjectMatchResult, object_ml_result: ObjectRankResult) -> str:
-    base_note = match_result.error_note or "Không tìm thấy mã đối tượng"
-    if object_ml_result.status in {"LOW_CONFIDENCE"}:
-        return f"{base_note}; ML mã ĐT chưa đủ tin cậy ({object_ml_result.confidence:.2f}, gap {object_ml_result.gap:.2f})"
-    return base_note
-
-
 def _can_use_forced_object_code_without_match(rule: Rule) -> bool:
     return bool(rule.forced_object_code and rule.amount_equals is not None)
 
@@ -1144,38 +1034,3 @@ def _can_use_forced_object_code_without_match(rule: Rule) -> bool:
 def _resolve_config_path(value: str | Path, project_root: Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else project_root / path
-
-
-def _rule_for_ml_result(flow: str, ml_result: ClassificationResult, rules: list[Rule]) -> Rule | None:
-    for rule in rules:
-        if rule.flow == flow and rule.account == ml_result.account:
-            return rule
-    if not ml_result.account:
-        return None
-    requires_object = ml_result.account in {"331", "131", "141"}
-    return Rule(
-        flow=flow,
-        use_case=ml_result.use_case,
-        account=ml_result.account,
-        bank_scope=[],
-        include_keywords=[],
-        context_keywords=[],
-        exclude_keywords=[],
-        auto_process=True,
-        priority=999,
-        requires_object=requires_object,
-        object_catalog=_ml_object_catalog(flow, ml_result.account, requires_object),
-        rule_id="ml_fallback",
-    )
-
-
-def _ml_object_catalog(flow: str, account: str, requires_object: bool) -> str:
-    if not requires_object:
-        return "none"
-    if account == "141":
-        return INTERNAL_OBJECT_CATALOG
-    if flow == FLOW_BAO_NO:
-        return "payable"
-    if flow == FLOW_BAO_CO:
-        return "receivable"
-    return "none"

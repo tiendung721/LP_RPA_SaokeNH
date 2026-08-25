@@ -10,7 +10,7 @@ bank_object_codes:
 
 foreign_currency_accounts:
   VCB: "1122VCB"
-  ACB: "1122CT"
+  ACB: "1122ACB"
   MSB: "1122HB"
 
 matching:
@@ -23,10 +23,8 @@ matching:
 output:
   date_format: "%d/%m/%Y"
   excel_file: "rpa_input.xlsx"
-  tracking_file: "rpa_tracking.json"
   summary_file: "rpa_summary.xlsx"
   object_match_review_file: "object_match_review.xlsx"
-  log_file: "agent_run.log"
   rpa_reason_encoding: "tcvn3"
 
 rules:
@@ -44,13 +42,3 @@ historical_memory:
   min_unique_similarity: 35
   min_ambiguous_similarity: 70
   min_ambiguous_gap: 8
-
-ml:
-  enabled: false
-  object_ranker_enabled: true
-  transaction_classifier_model: "models/transaction_classifier.joblib"
-  object_ranker_model: "models/object_ranker.joblib"
-  min_classification_confidence: 0.75
-  min_object_confidence: 0.85
-  min_object_gap: 0.15
-  object_ranker_min_training_rows: 50

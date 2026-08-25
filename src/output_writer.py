@@ -2,12 +2,16 @@
 
 from dataclasses import asdict, dataclass
 from datetime import date
+import hashlib
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+
+from .excel_io import atomic_output_path
 
 from .flows import (
     FLOW_CHI_TIEN_MAT,
@@ -51,7 +55,7 @@ RPA_THU_TIEN_MAT_COLUMNS = [
     "Ngày CT",
     "Mã ĐT",
     "Lí do",
-    "Người nhận tiền",
+    "Người nộp tiền",
     "TK nợ",
     "TK có",
     "Thành tiền",
@@ -64,7 +68,7 @@ RPA_CHI_TIEN_MAT_COLUMNS = [
     "Ngày CT",
     "Mã ĐT",
     "Lí do",
-    "Người nộp tiền",
+    "Người nhận tiền",
     "TK nợ",
     "TK có",
     "Thành tiền",
@@ -88,62 +92,44 @@ RPA_REASON_UNICODE_COLUMN = "Lí do Unicode"
 EXCEPTION_REVIEW_COLUMNS = [
     "Duyệt nhập RPA",
     "Luồng nhập RPA",
-    "Trạng thái xử lý exception",
-    "Lỗi còn thiếu",
-    "Promoted to input",
-    "Promoted sheet",
-    "Promoted at",
+    "Trạng thái xử lý",
+    "Vấn đề cần xử lý",
 ]
 EXCEPTION_COLUMNS = [
-    "Mã định danh",
-    "File gốc",
-    "Sheet gốc",
-    "Dòng gốc",
+    "Duyệt nhập RPA",
+    "Trạng thái xử lý",
+    "Vấn đề cần xử lý",
+    "Nguồn sao kê",
     "Ngân hàng",
-    "Luồng",
+    "Luồng nhập RPA",
     "Ngày CT",
-    "Nội dung giao dịch gốc",
-    "Người hưởng/Người chuyển",
-    "Người nhận tiền",
-    "Người nộp tiền",
+    "Nội dung giao dịch",
+    "Đối tượng giao dịch",
+    "Người nộp/nhận tiền",
     "Mã ĐT",
-    "Tên ĐT suy luận",
-    "Lí do",
-    RPA_REASON_UNICODE_COLUMN,
+    "Tên ĐT",
+    "Lý do",
     "TK nợ",
     "TK có",
     "Thành tiền",
     "Ngoại tệ",
     "Số tiền ngoại tệ",
     "Tỷ giá",
-    "Use case dự đoán",
-    "Trạng thái",
-    "Trạng thái RPA",
-    "Thông báo RPA",
     "transaction_uid",
     "run_id",
-    "Ghi chú lỗi",
-    "Độ tin cậy",
-    "Nguồn match ĐT",
-    "Counterparty hint",
-    *EXCEPTION_REVIEW_COLUMNS,
-]
-RPA_TASK_COLUMNS = [
-    "run_id",
-    "task_id",
-    "transaction_uid",
-    "flow",
-    "input_sheet",
-    "input_excel_row",
-    "summary_status",
     "source_file",
     "source_sheet",
-    "source_row_index",
-    "sheet_row_count",
-    "execution_order",
-    "voucher_type",
-    "has_error",
+    "source_row",
 ]
+
+INPUT_TECHNICAL_COLUMNS = [
+    "transaction_uid",
+    "run_id",
+    INPUT_STATUS_COLUMN,
+    INPUT_MESSAGE_COLUMN,
+    INPUT_UPDATED_AT_COLUMN,
+]
+EXCEPTION_TECHNICAL_COLUMNS = ["transaction_uid", "run_id", "source_file", "source_sheet", "source_row"]
 
 
 @dataclass
@@ -178,7 +164,7 @@ def write_outputs(
         run_stats=config.get("_run_stats", {}),
         rpa_reason_encoding=output_cfg.get("rpa_reason_encoding", ""),
     )
-    write_object_match_review(processed, object_match_review_path, alias_audit_rows=_build_alias_audit_rows(config))
+    write_object_match_review(processed, object_match_review_path)
     return OutputWriteResult(
         run_id=run_state.run_id,
         excel_path=excel_path,
@@ -218,33 +204,16 @@ def write_excel(
         ],
         columns=EXCEPTION_COLUMNS,
     )
-    manual_review_df = pd.DataFrame([_manual_review_record(item) for item in processed if item.status != "OK"])
-    audit_df = pd.DataFrame([_audit_record(item) for item in processed])
-    parser_warnings_df = pd.DataFrame((run_stats or {}).get("parser_warnings", []))
-    summary_df = pd.DataFrame(_summary_records(processed, flow_items, run_stats or {}))
-    task_df = pd.DataFrame(_task_records(flow_items, run_id), columns=RPA_TASK_COLUMNS)
-
-    with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        for flow in PAD_FLOW_ORDER:
-            flow_dfs[flow].to_excel(writer, sheet_name=flow_sheet(flow), index=False)
-        exception_df.to_excel(writer, sheet_name="EXCEPTION", index=False)
-        manual_review_df.to_excel(writer, sheet_name="MANUAL_REVIEW", index=False)
-        audit_df.to_excel(writer, sheet_name="AUDIT_LOG", index=False)
-        parser_warnings_df.to_excel(writer, sheet_name="PARSER_WARNINGS", index=False)
-        summary_df.to_excel(writer, sheet_name="SUMMARY", index=False)
-        if run_id:
-            task_df.to_excel(writer, sheet_name="RPA_TASKS", index=False)
-        sheet_names = [flow_sheet(flow) for flow in PAD_FLOW_ORDER] + [
-            "EXCEPTION",
-            "MANUAL_REVIEW",
-            "AUDIT_LOG",
-            "PARSER_WARNINGS",
-            "SUMMARY",
-        ]
-        if run_id:
-            sheet_names.append("RPA_TASKS")
-        for sheet_name in sheet_names:
-            _format_sheet(writer.book[sheet_name])
+    with atomic_output_path(path) as temporary_path:
+        with pd.ExcelWriter(temporary_path, engine="openpyxl") as writer:
+            for flow in PAD_FLOW_ORDER:
+                sheet_name = flow_sheet(flow)
+                flow_dfs[flow].to_excel(writer, sheet_name=sheet_name, index=False)
+                _format_sheet(writer.book[sheet_name])
+                _hide_columns(writer.book[sheet_name], INPUT_TECHNICAL_COLUMNS)
+            exception_df.to_excel(writer, sheet_name="EXCEPTION", index=False)
+            _format_sheet(writer.book["EXCEPTION"])
+            _style_exception_sheet(writer.book["EXCEPTION"])
 
 
 def write_tracking(processed: list[ProcessedTransaction], path: str | Path, run_state: RpaRunState) -> None:
@@ -264,92 +233,46 @@ def write_tracking(processed: list[ProcessedTransaction], path: str | Path, run_
     write_tracking_records(records, path)
 
 
-OBJECT_MATCH_REVIEW_COLUMNS = [
-    "reason_class",
-    "suggested_action",
-    "error_note",
-    "source_file",
-    "source_sheet",
-    "source_row",
-    "bank",
-    "flow",
-    "use_case",
-    "original_content",
-    "counterparty_raw",
-    "counterparty_hint",
-    "counterparty_source",
-    "tax_code",
-    "object_match_source",
-    "best_candidate_code",
-    "best_candidate_name",
-    "best_candidate_score",
-    "best_candidate_source",
-    "best_candidate_matched_on",
-    "object_ml_status",
-    "object_ml_best_code",
-    "object_ml_confidence",
-    "object_ml_gap",
-    "object_ml_decision",
-    "object_ml_note",
-    "top_candidates",
+OBJECT_ERROR_SHEET = "LOI_MA_DOI_TUONG"
+OBJECT_ACTION_SHEET = "DE_XUAT_CAP_NHAT"
+OBJECT_REVIEW_STATUSES = ["Chưa xử lý", "Đã xử lý", "Không áp dụng"]
+OBJECT_ERROR_COLUMNS = [
+    "Ưu tiên",
+    "Trạng thái xử lý",
+    "Ghi chú",
+    "Nguồn sao kê",
+    "Ngân hàng",
+    "Ngày CT",
+    "Luồng",
+    "Nội dung giao dịch",
+    "Tên nhận diện",
+    "Nguồn nhận diện",
+    "Nguyên nhân lỗi",
+    "Mã gợi ý 1",
+    "Tên gợi ý 1",
+    "Điểm gợi ý 1",
+    "Mã gợi ý 2",
+    "Tên gợi ý 2",
+    "Điểm gợi ý 2",
+    "Chênh lệch điểm",
+    "Đề xuất xử lý",
     "transaction_uid",
 ]
-
-
-HINT_COLLISION_COLUMNS = [
-    "risk_class",
-    "source_file",
-    "source_sheet",
-    "source_row",
-    "bank",
-    "flow",
-    "counterparty_hint",
-    "counterparty_source",
-    "object_match_source",
-    "matched_object_code",
-    "best_candidate_code",
-    "best_candidate_score",
-    "second_candidate_code",
-    "second_candidate_score",
-    "score_gap",
-    "candidate_codes",
-    "object_ml_status",
-    "object_ml_best_code",
-    "object_ml_confidence",
-    "object_ml_gap",
-    "object_ml_decision",
-    "original_content",
-    "error_note",
-    "suggested_action",
-    "transaction_uid",
-]
-
-ALIAS_RISK_COLUMNS = [
-    "catalog",
-    "code",
-    "alias",
-    "risk",
-    "collision_count",
-    "hit_codes",
-    "hit_names",
-]
-
-OBJECT_ACTION_COLUMNS = [
-    "priority",
-    "action_type",
-    "reason_class",
-    "catalog",
-    "code",
-    "alias_or_hint",
-    "tax_code",
-    "count",
-    "source_refs",
-    "candidate_codes",
-    "object_ml_status",
-    "object_ml_confidence",
-    "object_ml_gap",
-    "details",
-    "suggested_action",
+OBJECT_UPDATE_COLUMNS = [
+    "Ưu tiên",
+    "Trạng thái xử lý",
+    "Ghi chú",
+    "Loại cập nhật",
+    "Danh mục",
+    "Mã ĐT",
+    "Alias/Hint",
+    "Mã số thuế",
+    "Số lần gặp",
+    "Nguồn liên quan",
+    "Mã có thể nhầm",
+    "Chi tiết",
+    "Đề xuất xử lý",
+    "action_key",
 ]
 
 
@@ -359,56 +282,176 @@ def write_object_match_review(
     alias_audit_rows: list[dict[str, Any]] | None = None,
 ) -> None:
     path = Path(path)
-    rows = [_object_match_review_record(item) for item in processed if _has_object_match_error(item)]
-    detail_df = pd.DataFrame(rows, columns=OBJECT_MATCH_REVIEW_COLUMNS)
-    summary_df = _object_match_review_summary(detail_df)
-    hint_collision_df = pd.DataFrame(_hint_collision_records(processed), columns=HINT_COLLISION_COLUMNS)
-    alias_risk_df = pd.DataFrame(alias_audit_rows or [], columns=ALIAS_RISK_COLUMNS)
-    object_action_df = pd.DataFrame(
-        _object_action_records(detail_df, alias_risk_df),
-        columns=OBJECT_ACTION_COLUMNS,
-    )
+    previous_error_review = _load_review_values(path, OBJECT_ERROR_SHEET, "transaction_uid")
+    previous_action_review = _load_review_values(path, OBJECT_ACTION_SHEET, "action_key")
+    error_rows = [
+        _object_error_user_record(item, previous_error_review)
+        for item in processed
+        if _has_object_match_error(item)
+    ]
+    action_rows = _object_update_records(processed, previous_action_review)
+    error_df = pd.DataFrame(error_rows, columns=OBJECT_ERROR_COLUMNS)
+    action_df = pd.DataFrame(action_rows, columns=OBJECT_UPDATE_COLUMNS)
 
-    with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        detail_df.to_excel(writer, sheet_name="OBJECT_ERRORS", index=False)
-        summary_df.to_excel(writer, sheet_name="SUMMARY", index=False)
-        hint_collision_df.to_excel(writer, sheet_name="HINT_COLLISIONS", index=False)
-        alias_risk_df.to_excel(writer, sheet_name="ALIAS_RISK", index=False)
-        object_action_df.to_excel(writer, sheet_name="OBJECT_ACTIONS", index=False)
-        _format_sheet(writer.book["OBJECT_ERRORS"])
-        _format_sheet(writer.book["SUMMARY"])
-        _format_sheet(writer.book["HINT_COLLISIONS"])
-        _format_sheet(writer.book["ALIAS_RISK"])
-        _format_sheet(writer.book["OBJECT_ACTIONS"])
+    with atomic_output_path(path) as temporary_path:
+        with pd.ExcelWriter(temporary_path, engine="openpyxl") as writer:
+            error_df.to_excel(writer, sheet_name=OBJECT_ERROR_SHEET, index=False)
+            action_df.to_excel(writer, sheet_name=OBJECT_ACTION_SHEET, index=False)
+            for sheet_name, technical_column in (
+                (OBJECT_ERROR_SHEET, "transaction_uid"),
+                (OBJECT_ACTION_SHEET, "action_key"),
+            ):
+                ws = writer.book[sheet_name]
+                _format_sheet(ws)
+                _hide_columns(ws, [technical_column])
+                _apply_review_controls(ws)
 
 
-def _build_alias_audit_rows(config: dict[str, Any]) -> list[dict[str, Any]]:
-    runtime_paths = config.get("_runtime_paths", {})
-    aliases_path = runtime_paths.get("object_aliases_path")
-    if not aliases_path:
-        return []
+def _load_review_values(path: Path, sheet_name: str, key_column: str) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_excel(path, sheet_name=sheet_name, dtype=object)
+    except (ValueError, OSError):
+        return {}
+    if key_column not in df.columns:
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for row in df.to_dict("records"):
+        key = _clean_report_value(row.get(key_column))
+        if not key:
+            continue
+        result[key] = {
+            "Trạng thái xử lý": _clean_report_value(row.get("Trạng thái xử lý")),
+            "Ghi chú": _clean_report_value(row.get("Ghi chú")),
+        }
+    return result
 
-    from .entity_extractor import OwnCompanyConfig
-    from .object_aliases import load_object_aliases
-    from .object_matcher import ObjectMatcher
 
-    own_company = OwnCompanyConfig.from_yaml(runtime_paths.get("own_company_path"))
-    aliases = load_object_aliases(aliases_path)
+def _object_error_user_record(
+    item: ProcessedTransaction,
+    previous_review: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    reason_class = _object_match_reason_class(item)
+    action_type = _action_type_for_reason(reason_class)
+    candidates = item.matched_candidates
+    best = candidates[0] if candidates else None
+    second = candidates[1] if len(candidates) > 1 else None
+    gap = ""
+    if best and second:
+        gap = round(float(best.score or 0) - float(second.score or 0), 4)
+    review = previous_review.get(item.transaction_uid, {})
+    return {
+        "Ưu tiên": _priority_for_action(action_type),
+        "Trạng thái xử lý": review.get("Trạng thái xử lý") or OBJECT_REVIEW_STATUSES[0],
+        "Ghi chú": review.get("Ghi chú", ""),
+        "Nguồn sao kê": _source_display(item.source_file, item.source_sheet, item.original_row_index),
+        "Ngân hàng": item.bank,
+        "Ngày CT": item.transaction_date,
+        "Luồng": item.flow,
+        "Nội dung giao dịch": item.original_content,
+        "Tên nhận diện": item.entities.counterparty_hint or item.counterparty_raw,
+        "Nguồn nhận diện": item.entities.counterparty_source or item.object_match_source,
+        "Nguyên nhân lỗi": _reason_class_label(reason_class),
+        "Mã gợi ý 1": best.code if best else "",
+        "Tên gợi ý 1": best.name if best else "",
+        "Điểm gợi ý 1": best.score if best else "",
+        "Mã gợi ý 2": second.code if second else "",
+        "Tên gợi ý 2": second.name if second else "",
+        "Điểm gợi ý 2": second.score if second else "",
+        "Chênh lệch điểm": gap,
+        "Đề xuất xử lý": _object_match_suggested_action(reason_class),
+        "transaction_uid": item.transaction_uid,
+    }
+
+
+def _object_update_records(
+    processed: list[ProcessedTransaction],
+    previous_review: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in processed:
+        if _has_object_match_error(item):
+            reason_class = _object_match_reason_class(item)
+            action_type = _action_type_for_reason(reason_class)
+        elif _has_hint_collision_signal(item):
+            reason_class = "candidate_collision"
+            action_type = "review_ambiguous_hint"
+        else:
+            continue
+
+        candidates = item.matched_candidates
+        best = candidates[0] if candidates else None
+        hint = _clean_report_value(item.entities.counterparty_hint)
+        tax_code = _clean_report_value(item.entities.tax_code)
+        catalog = _catalog_for_flow(item.flow)
+        code = ""
+        if action_type in {"review_alias_candidate", "review_ambiguous_hint"}:
+            code = _clean_report_value(best.code if best else item.object_code)
+        alias_or_hint = tax_code if action_type == "update_catalog_tax_code" else hint
+        if not alias_or_hint and best:
+            alias_or_hint = _clean_report_value(best.matched_on)
+        key_source = "|".join(
+            _review_norm(value)
+            for value in (action_type, reason_class, catalog, code, alias_or_hint, tax_code)
+        )
+        action_key = hashlib.sha256(key_source.encode("utf-8")).hexdigest()[:24]
+        row = grouped.setdefault(
+            action_key,
+            {
+                "Ưu tiên": _priority_for_action(action_type),
+                "Trạng thái xử lý": OBJECT_REVIEW_STATUSES[0],
+                "Ghi chú": "",
+                "Loại cập nhật": _action_type_label(action_type),
+                "Danh mục": "Phải trả" if catalog == "payable" else "Phải thu" if catalog == "receivable" else "",
+                "Mã ĐT": code,
+                "Alias/Hint": alias_or_hint,
+                "Mã số thuế": tax_code,
+                "Số lần gặp": 0,
+                "Nguồn liên quan": [],
+                "Mã có thể nhầm": ", ".join(candidate.code for candidate in candidates[:5]),
+                "Chi tiết": item.original_content,
+                "Đề xuất xử lý": _object_action_suggestion(action_type),
+                "action_key": action_key,
+            },
+        )
+        row["Số lần gặp"] += 1
+        source_ref = _source_display(item.source_file, item.source_sheet, item.original_row_index)
+        if source_ref and source_ref not in row["Nguồn liên quan"]:
+            row["Nguồn liên quan"].append(source_ref)
+
     rows: list[dict[str, Any]] = []
-    for catalog, path_key in (("payable", "payable_path"), ("receivable", "receivable_path")):
-        catalog_path = runtime_paths.get(path_key)
-        if not catalog_path:
-            continue
-        try:
-            matcher = ObjectMatcher.from_excel(
-                catalog_path,
-                aliases=aliases.get(catalog, {}),
-                own_company=own_company,
-            )
-        except Exception:  # noqa: BLE001 - audit must not block RPA output
-            continue
-        rows.extend(matcher.alias_audit_records(catalog))
+    for action_key, row in grouped.items():
+        result = dict(row)
+        result["Nguồn liên quan"] = "; ".join(result["Nguồn liên quan"][:10])
+        review = previous_review.get(action_key, {})
+        result["Trạng thái xử lý"] = review.get("Trạng thái xử lý") or result["Trạng thái xử lý"]
+        result["Ghi chú"] = review.get("Ghi chú", "")
+        rows.append(result)
+    rows.sort(key=lambda row: (int(row["Ưu tiên"]), -int(row["Số lần gặp"]), str(row["Alias/Hint"])))
     return rows
+
+
+def _reason_class_label(reason_class: str) -> str:
+    return {
+        "ambiguous": "Có nhiều mã đối tượng phù hợp",
+        "tax_code_not_in_catalog": "Mã số thuế chưa có trong danh mục",
+        "weak_or_generic_hint": "Tên nhận diện quá chung hoặc quá yếu",
+        "no_extractable_object": "Không bóc tách được thông tin đối tượng",
+        "missing_alias_or_low_score": "Thiếu alias hoặc điểm nhận diện thấp",
+        "not_in_catalog_or_missing_alias": "Đối tượng chưa có trong danh mục hoặc thiếu alias",
+    }.get(reason_class, "Không xác định được mã đối tượng")
+
+
+def _action_type_label(action_type: str) -> str:
+    return {
+        "review_ambiguous_hint": "Kiểm tra tên nhận diện bị trùng",
+        "update_catalog_tax_code": "Bổ sung mã số thuế vào danh mục",
+        "review_alias_candidate": "Kiểm tra và bổ sung alias",
+        "improve_extractor": "Cải thiện bóc tách tên đối tượng",
+        "manual_object_review": "Kiểm tra đối tượng thủ công",
+        "review_catalog_or_alias": "Kiểm tra danh mục hoặc alias",
+    }.get(action_type, "Kiểm tra mã đối tượng")
 
 
 def _object_action_records(detail_df: pd.DataFrame, alias_risk_df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -444,9 +487,6 @@ def _alias_action_records(alias_risk_df: pd.DataFrame) -> list[dict[str, Any]]:
                 "count": int(record.get("collision_count") or 0),
                 "source_refs": "",
                 "candidate_codes": _clean_report_value(record.get("hit_codes")),
-                "object_ml_status": "",
-                "object_ml_confidence": "",
-                "object_ml_gap": "",
                 "details": _clean_report_value(record.get("hit_names")),
                 "suggested_action": _object_action_suggestion(action_type),
             }
@@ -481,9 +521,6 @@ def _detail_action_records(detail_df: pd.DataFrame) -> list[dict[str, Any]]:
                 "count": 0,
                 "source_refs": [],
                 "candidate_codes": _candidate_codes(record.get("top_candidates")),
-                "object_ml_status": _clean_report_value(record.get("object_ml_status")),
-                "object_ml_confidence": _clean_report_value(record.get("object_ml_confidence")),
-                "object_ml_gap": _clean_report_value(record.get("object_ml_gap")),
                 "details": _clean_report_value(record.get("original_content")),
                 "suggested_action": _object_action_suggestion(action_type),
             },
@@ -630,11 +667,6 @@ def _hint_collision_record(item: ProcessedTransaction) -> dict[str, Any]:
         "second_candidate_score": second.score,
         "score_gap": round(gap, 4),
         "candidate_codes": ", ".join(candidate.code for candidate in item.matched_candidates[:5]),
-        "object_ml_status": item.object_ml_result.status,
-        "object_ml_best_code": item.object_ml_result.best_code,
-        "object_ml_confidence": item.object_ml_result.confidence,
-        "object_ml_gap": item.object_ml_result.gap,
-        "object_ml_decision": item.object_ml_result.decision,
         "original_content": item.original_content,
         "error_note": item.error_note,
         "suggested_action": _hint_collision_suggested_action(risk_class),
@@ -700,45 +732,32 @@ def _exception_record(
     run_id: str | None = None,
     reason_encoding: str = "",
 ) -> dict[str, Any]:
+    counterparty = item.counterparty_raw or item.entities.counterparty_hint
     return {
-        "Mã định danh": item.transaction_uid,
-        "File gốc": item.source_file,
-        "Sheet gốc": item.source_sheet,
-        "Dòng gốc": item.original_row_index,
+        "Duyệt nhập RPA": "",
+        "Trạng thái xử lý": "Chưa duyệt",
+        "Vấn đề cần xử lý": item.error_note,
+        "Nguồn sao kê": _source_display(item.source_file, item.source_sheet, item.original_row_index),
         "Ngân hàng": item.bank,
-        "Luồng": item.flow,
         "Luồng nhập RPA": item.flow,
         "Ngày CT": item.transaction_date,
-        "Nội dung giao dịch gốc": item.original_content,
-        "Người hưởng/Người chuyển": item.counterparty_raw,
-        "Người nhận tiền": _cash_recipient_name(item),
-        "Người nộp tiền": _cash_recipient_name(item),
+        "Nội dung giao dịch": item.original_content,
+        "Đối tượng giao dịch": counterparty,
+        "Người nộp/nhận tiền": _cash_recipient_name(item),
         "Mã ĐT": item.object_code,
-        "Tên ĐT suy luận": item.object_name,
-        "Lí do": _rpa_reason(item.reason, reason_encoding),
-        RPA_REASON_UNICODE_COLUMN: item.reason,
+        "Tên ĐT": item.object_name,
+        "Lý do": item.reason,
         "TK nợ": item.debit_account,
         "TK có": item.credit_account,
         "Thành tiền": item.amount,
         "Ngoại tệ": item.foreign_currency,
         "Số tiền ngoại tệ": item.foreign_amount or "",
         "Tỷ giá": item.exchange_rate or "",
-        "Use case dự đoán": item.use_case,
-        "Trạng thái": item.status,
-        "Trạng thái RPA": item.rpa_status,
-        "Thông báo RPA": item.rpa_message,
         "transaction_uid": item.transaction_uid,
         "run_id": run_id or "",
-        "Ghi chú lỗi": item.error_note,
-        "Độ tin cậy": item.confidence,
-        "Nguồn match ĐT": item.object_match_source,
-        "Counterparty hint": item.entities.counterparty_hint,
-        "Duyệt nhập RPA": "",
-        "Trạng thái xử lý exception": "",
-        "Lỗi còn thiếu": "",
-        "Promoted to input": "",
-        "Promoted sheet": "",
-        "Promoted at": "",
+        "source_file": item.source_file,
+        "source_sheet": item.source_sheet,
+        "source_row": item.original_row_index,
     }
 
 
@@ -767,7 +786,6 @@ def _manual_review_record(item: ProcessedTransaction) -> dict[str, Any]:
         "credit_account": item.credit_account,
         "object_code": item.object_code,
         "confidence": item.confidence,
-        "used_ml": "yes" if item.matched_rule == "ML" else "no",
         "review_reason": item.error_note,
         "is_duplicate": item.is_duplicate,
         "duplicate_of": item.duplicate_of,
@@ -800,7 +818,6 @@ def _audit_record(item: ProcessedTransaction) -> dict[str, Any]:
         "object_code": item.object_code,
         "object_name": item.object_name,
         "confidence": item.confidence,
-        "used_ml": "yes" if item.matched_rule == "ML" else "no",
         "status": item.status,
         "manual_review_reason": item.error_note if item.status != "OK" else "",
         "is_duplicate": item.is_duplicate,
@@ -840,12 +857,6 @@ def _object_match_review_record(item: ProcessedTransaction) -> dict[str, Any]:
         "best_candidate_score": best.score if best else "",
         "best_candidate_source": best.source if best else "",
         "best_candidate_matched_on": best.matched_on if best else "",
-        "object_ml_status": item.object_ml_result.status,
-        "object_ml_best_code": item.object_ml_result.best_code,
-        "object_ml_confidence": item.object_ml_result.confidence,
-        "object_ml_gap": item.object_ml_result.gap,
-        "object_ml_decision": item.object_ml_result.decision,
-        "object_ml_note": item.object_ml_result.note,
         "top_candidates": _format_candidates(item.matched_candidates),
         "transaction_uid": item.transaction_uid,
     }
@@ -885,8 +896,7 @@ def _object_match_suggested_action(reason_class: str) -> str:
 def _format_candidates(candidates: list[Any]) -> str:
     parts = []
     for candidate in candidates[:5]:
-        ml_score = f"|ml={candidate.ml_score}" if getattr(candidate, "ml_score", 0) else ""
-        parts.append(f"{candidate.code}|{candidate.score}|{candidate.source}|{candidate.matched_on}{ml_score}")
+        parts.append(f"{candidate.code}|{candidate.score}|{candidate.source}|{candidate.matched_on}")
     return "; ".join(parts)
 
 
@@ -1060,8 +1070,6 @@ def _tracking_record(item: ProcessedTransaction) -> dict[str, Any]:
         "exchange_rate": item.exchange_rate,
         "use_case": item.use_case,
         "matched_rule": item.matched_rule,
-        "ml_result": asdict(item.ml_result),
-        "object_ml_result": asdict(item.object_ml_result),
         "verification_result": asdict(item.verification_result),
         "processing_status": item.status,
         "error_note": item.error_note,
@@ -1158,15 +1166,26 @@ def _serialize_cell(value: Any) -> Any:
     return value
 
 
+def _source_display(source_file: Any, source_sheet: Any, source_row: Any) -> str:
+    parts = [_clean_report_value(source_file), _clean_report_value(source_sheet)]
+    row = _clean_report_value(source_row)
+    if row:
+        parts.append(f"dòng {row}")
+    return " | ".join(part for part in parts if part)
+
+
 def _format_sheet(ws) -> None:
     for cell in ws[1]:
         cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+    if ws.max_row and ws.max_column:
+        ws.auto_filter.ref = ws.dimensions
     header_names = {cell.value: idx for idx, cell in enumerate(ws[1], start=1)}
     for name, idx in header_names.items():
         if name and "Ngày" in str(name):
             for row in range(2, ws.max_row + 1):
                 ws.cell(row=row, column=idx).number_format = "DD/MM/YYYY"
-        if name in {"Thành tiền", "Giá trị", "Tỷ giá"}:
+        if name in {"Thành tiền", "Số tiền ngoại tệ", "Giá trị", "Tỷ giá", "Số lần gặp"}:
             for row in range(2, ws.max_row + 1):
                 ws.cell(row=row, column=idx).number_format = "#,##0"
 
@@ -1178,3 +1197,74 @@ def _format_sheet(ws) -> None:
                 continue
             max_len = max(max_len, len(str(cell.value)))
         ws.column_dimensions[letter].width = min(max(max_len + 2, 10), 60)
+
+
+def _hide_columns(ws, column_names: list[str]) -> None:
+    headers = {cell.value: idx for idx, cell in enumerate(ws[1], start=1)}
+    for name in column_names:
+        column_index = headers.get(name)
+        if column_index:
+            ws.column_dimensions[get_column_letter(column_index)].hidden = True
+
+
+def _style_exception_sheet(ws) -> None:
+    headers = {cell.value: idx for idx, cell in enumerate(ws[1], start=1)}
+    editable = {
+        "Duyệt nhập RPA",
+        "Luồng nhập RPA",
+        "Ngày CT",
+        "Đối tượng giao dịch",
+        "Người nộp/nhận tiền",
+        "Mã ĐT",
+        "Tên ĐT",
+        "Lý do",
+        "TK nợ",
+        "TK có",
+        "Thành tiền",
+        "Ngoại tệ",
+        "Số tiền ngoại tệ",
+        "Tỷ giá",
+    }
+    yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    gray = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+    error_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+    for name, column_index in headers.items():
+        fill = yellow if name in editable else gray
+        for row_index in range(2, ws.max_row + 1):
+            ws.cell(row=row_index, column=column_index).fill = fill
+    issue_column = headers.get("Vấn đề cần xử lý")
+    if issue_column:
+        for row_index in range(2, ws.max_row + 1):
+            ws.cell(row=row_index, column=issue_column).fill = error_fill
+
+    approval_column = headers.get("Duyệt nhập RPA")
+    if approval_column:
+        validation = DataValidation(type="list", formula1='"yes"', allow_blank=True)
+        ws.add_data_validation(validation)
+        validation.add(f"{get_column_letter(approval_column)}2:{get_column_letter(approval_column)}1048576")
+    flow_column = headers.get("Luồng nhập RPA")
+    if flow_column:
+        validation = DataValidation(
+            type="list",
+            formula1='"bao_no,bao_co,thu_tien_mat,chi_tien_mat"',
+            allow_blank=False,
+        )
+        ws.add_data_validation(validation)
+        validation.add(f"{get_column_letter(flow_column)}2:{get_column_letter(flow_column)}1048576")
+    _hide_columns(ws, EXCEPTION_TECHNICAL_COLUMNS)
+
+
+def _apply_review_controls(ws) -> None:
+    headers = {cell.value: idx for idx, cell in enumerate(ws[1], start=1)}
+    yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    gray = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+    for name, column_index in headers.items():
+        fill = yellow if name in {"Trạng thái xử lý", "Ghi chú"} else gray
+        for row_index in range(2, ws.max_row + 1):
+            ws.cell(row=row_index, column=column_index).fill = fill
+    status_column = headers.get("Trạng thái xử lý")
+    if status_column:
+        validation = DataValidation(type="list", formula1='"Chưa xử lý,Đã xử lý,Không áp dụng"', allow_blank=False)
+        ws.add_data_validation(validation)
+        letter = get_column_letter(status_column)
+        validation.add(f"{letter}2:{letter}1048576")

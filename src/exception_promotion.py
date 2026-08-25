@@ -11,6 +11,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from .config_loader import load_config
+from .excel_io import atomic_output_path
 from .flows import FLOW_BAO_CO, FLOW_BAO_NO, FLOW_CHI_TIEN_MAT, FLOW_THU_TIEN_MAT, flow_sheet
 from .output_writer import (
     EXCEPTION_REVIEW_COLUMNS,
@@ -32,15 +33,18 @@ from .vietnamese_encoding import unicode_to_tcvn3
 EXCEPTION_SHEET_NAME = "EXCEPTION"
 APPROVAL_COLUMN = "Duyệt nhập RPA"
 FLOW_COLUMN = "Luồng nhập RPA"
-EXCEPTION_STATUS_COLUMN = "Trạng thái xử lý exception"
-MISSING_ERROR_COLUMN = "Lỗi còn thiếu"
+EXCEPTION_STATUS_COLUMN = "Trạng thái xử lý"
+MISSING_ERROR_COLUMN = "Vấn đề cần xử lý"
+LEGACY_EXCEPTION_STATUS_COLUMN = "Trạng thái xử lý exception"
+LEGACY_MISSING_ERROR_COLUMN = "Lỗi còn thiếu"
 PROMOTED_TO_INPUT_COLUMN = "Promoted to input"
 PROMOTED_SHEET_COLUMN = "Promoted sheet"
 PROMOTED_AT_COLUMN = "Promoted at"
 
-STATUS_PROMOTED = "da_chuyen_sang_input"
-STATUS_MISSING_DATA = "thieu_du_lieu"
-STATUS_INVALID_FLOW = "luong_khong_hop_le"
+STATUS_PROMOTED = "Đã chuyển"
+STATUS_MISSING_DATA = "Thiếu dữ liệu"
+STATUS_INVALID_FLOW = "Luồng không hợp lệ"
+LEGACY_STATUS_PROMOTED = "da_chuyen_sang_input"
 
 FLOW_TO_SHEET = {
     FLOW_BAO_NO: flow_sheet(FLOW_BAO_NO),
@@ -59,8 +63,8 @@ BASE_REQUIRED_COLUMNS = [
 FLOW_REQUIRED_COLUMNS = {
     FLOW_BAO_NO: BASE_REQUIRED_COLUMNS,
     FLOW_BAO_CO: BASE_REQUIRED_COLUMNS,
-    FLOW_THU_TIEN_MAT: ["Ngày CT", "Người nhận tiền", "Mã ĐT", "TK nợ", "TK có", "Thành tiền"],
-    FLOW_CHI_TIEN_MAT: ["Ngày CT", "Người nộp tiền", "Mã ĐT", "TK nợ", "TK có", "Thành tiền"],
+    FLOW_THU_TIEN_MAT: ["Ngày CT", "Người nộp/nhận tiền", "Mã ĐT", "TK nợ", "TK có", "Thành tiền"],
+    FLOW_CHI_TIEN_MAT: ["Ngày CT", "Người nộp/nhận tiền", "Mã ĐT", "TK nợ", "TK có", "Thành tiền"],
 }
 TARGET_TRACKING_COLUMNS = [
     "transaction_uid",
@@ -117,15 +121,17 @@ def promote_reviewed_exceptions(
     if EXCEPTION_SHEET_NAME not in workbook.sheetnames:
         raise ExceptionPromotionError(f"Workbook does not contain sheet {EXCEPTION_SHEET_NAME}")
 
+    normalize_legacy_cash_headers(workbook)
     exception_ws = workbook[EXCEPTION_SHEET_NAME]
     exception_headers = ensure_exception_columns(exception_ws)
     reason_encoding = load_rpa_reason_encoding(config_path)
     workbook_run_id = infer_workbook_run_id(workbook)
-    existing_uids = collect_existing_uids(workbook)
+    existing_uids = collect_existing_uids(workbook, include_exception=False)
+    known_uids = collect_existing_uids(workbook, include_exception=True)
     summary = PromotionSummary()
 
     for row_index in range(2, exception_ws.max_row + 1):
-        row_data = read_row(exception_ws, exception_headers, row_index)
+        row_data = normalize_exception_row(read_row(exception_ws, exception_headers, row_index))
         if not normalize_yes(row_data.get(APPROVAL_COLUMN)):
             summary.ignored += 1
             continue
@@ -164,9 +170,21 @@ def promote_reviewed_exceptions(
 
         target_ws = workbook[target_sheet]
         target_headers = ensure_target_tracking_columns(target_ws)
-        transaction_uid = ensure_transaction_uid(row_data, row_index, existing_uids)
+        transaction_uid = ensure_transaction_uid(row_data, row_index, known_uids)
         run_id = clean_text(row_data.get("run_id")) or workbook_run_id
         promoted_at = now()
+        if transaction_uid in existing_uids:
+            write_promotion_success(
+                exception_ws,
+                exception_headers,
+                row_index,
+                transaction_uid=transaction_uid,
+                run_id=run_id,
+                target_sheet=target_sheet,
+                promoted_at=promoted_at,
+            )
+            summary.skipped_already_promoted += 1
+            continue
         input_excel_row = promote_row(
             source_row=row_data,
             target_ws=target_ws,
@@ -174,6 +192,7 @@ def promote_reviewed_exceptions(
             transaction_uid=transaction_uid,
             run_id=run_id,
             reason_encoding=reason_encoding,
+            flow=flow,
         )
         write_promotion_success(
             exception_ws,
@@ -198,8 +217,10 @@ def promote_reviewed_exceptions(
             )
         )
         existing_uids.add(transaction_uid)
+        known_uids.add(transaction_uid)
 
-    workbook.save(input_path)
+    with atomic_output_path(input_path) as temporary_path:
+        workbook.save(temporary_path)
     ensure_summary_rows(input_path, summary.promoted_records)
     return summary
 
@@ -211,7 +232,29 @@ def load_workbook_for_promotion(input_file: Path):
 
 
 def ensure_exception_columns(ws) -> dict[str, int]:
-    required_columns = list(dict.fromkeys(["transaction_uid", *EXCEPTION_REVIEW_COLUMNS]))
+    headers = find_header_columns(ws)
+    is_new_schema = EXCEPTION_STATUS_COLUMN in headers or "Vấn đề cần xử lý" in headers
+    if is_new_schema:
+        required_columns = [
+            "transaction_uid",
+            "run_id",
+            "source_file",
+            "source_sheet",
+            "source_row",
+            *EXCEPTION_REVIEW_COLUMNS,
+        ]
+    else:
+        required_columns = [
+            "transaction_uid",
+            "run_id",
+            APPROVAL_COLUMN,
+            FLOW_COLUMN,
+            LEGACY_EXCEPTION_STATUS_COLUMN,
+            LEGACY_MISSING_ERROR_COLUMN,
+            PROMOTED_TO_INPUT_COLUMN,
+            PROMOTED_SHEET_COLUMN,
+            PROMOTED_AT_COLUMN,
+        ]
     return ensure_columns(ws, required_columns)
 
 
@@ -253,6 +296,55 @@ def read_row(ws, headers: dict[str, int], row_index: int) -> dict[str, Any]:
     }
 
 
+def normalize_legacy_cash_headers(workbook) -> None:
+    mappings = {
+        flow_sheet(FLOW_THU_TIEN_MAT): ("Người nhận tiền", "Người nộp tiền"),
+        flow_sheet(FLOW_CHI_TIEN_MAT): ("Người nộp tiền", "Người nhận tiền"),
+    }
+    for sheet_name, (legacy_name, correct_name) in mappings.items():
+        if sheet_name not in workbook.sheetnames:
+            continue
+        ws = workbook[sheet_name]
+        headers = find_header_columns(ws)
+        if correct_name not in headers and legacy_name in headers:
+            ws.cell(row=1, column=headers[legacy_name], value=correct_name)
+
+
+def normalize_exception_row(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(row)
+    normalized["transaction_uid"] = clean_text(row.get("transaction_uid")) or clean_text(row.get("Mã định danh"))
+    normalized["source_file"] = clean_text(row.get("source_file")) or clean_text(row.get("File gốc"))
+    normalized["source_sheet"] = clean_text(row.get("source_sheet")) or clean_text(row.get("Sheet gốc"))
+    normalized["source_row"] = row.get("source_row") or row.get("Dòng gốc") or ""
+    normalized["Nội dung giao dịch"] = clean_text(row.get("Nội dung giao dịch")) or clean_text(
+        row.get("Nội dung giao dịch gốc")
+    )
+    normalized["Đối tượng giao dịch"] = clean_text(row.get("Đối tượng giao dịch")) or clean_text(
+        row.get("Người hưởng/Người chuyển")
+    )
+    flow = normalize_flow(row.get(FLOW_COLUMN) or row.get("Luồng"))
+    legacy_person = (
+        clean_text(row.get("Người nhận tiền"))
+        if flow == FLOW_THU_TIEN_MAT
+        else clean_text(row.get("Người nộp tiền"))
+        if flow == FLOW_CHI_TIEN_MAT
+        else ""
+    )
+    normalized["Người nộp/nhận tiền"] = (
+        clean_text(row.get("Người nộp/nhận tiền"))
+        or legacy_person
+        or clean_text(row.get("Người nộp tiền"))
+        or clean_text(row.get("Người nhận tiền"))
+    )
+    normalized["Tên ĐT"] = clean_text(row.get("Tên ĐT")) or clean_text(row.get("Tên ĐT suy luận"))
+    normalized["Lý do"] = (
+        clean_text(row.get("Lý do"))
+        or clean_text(row.get(RPA_REASON_UNICODE_COLUMN))
+        or clean_text(row.get("Lí do"))
+    )
+    return normalized
+
+
 def normalize_yes(value: Any) -> bool:
     return clean_text(value).lower() == "yes"
 
@@ -266,9 +358,12 @@ def map_flow_to_target_sheet(flow: str) -> str:
 
 
 def is_already_promoted(row_data: dict[str, Any]) -> bool:
-    return normalize_yes(row_data.get(PROMOTED_TO_INPUT_COLUMN)) or clean_text(
-        row_data.get(EXCEPTION_STATUS_COLUMN)
-    ).lower() == STATUS_PROMOTED
+    status = clean_text(row_data.get(EXCEPTION_STATUS_COLUMN) or row_data.get(LEGACY_EXCEPTION_STATUS_COLUMN))
+    return (
+        normalize_yes(row_data.get(PROMOTED_TO_INPUT_COLUMN))
+        or status.lower() == LEGACY_STATUS_PROMOTED
+        or status.startswith(STATUS_PROMOTED)
+    )
 
 
 def validate_exception_row(row_data: dict[str, Any], flow: str) -> list[str]:
@@ -281,7 +376,7 @@ def validate_exception_row(row_data: dict[str, Any], flow: str) -> list[str]:
 
 
 def has_reason(row_data: dict[str, Any]) -> bool:
-    return not is_missing(row_data.get(RPA_REASON_UNICODE_COLUMN)) or not is_missing(row_data.get("Lí do"))
+    return not is_missing(row_data.get("Lý do"))
 
 
 def is_foreign_currency_row(row_data: dict[str, Any]) -> bool:
@@ -310,12 +405,13 @@ def promote_row(
     transaction_uid: str,
     run_id: str,
     reason_encoding: str,
+    flow: str,
 ) -> int:
     target_row_index = target_ws.max_row + 1
     copy_row_style(target_ws, target_row_index - 1, target_row_index)
 
-    reason_unicode = clean_text(source_row.get(RPA_REASON_UNICODE_COLUMN)) or clean_text(source_row.get("Lí do"))
-    reason_for_rpa = encode_reason(reason_unicode, reason_encoding) if reason_unicode else clean_text(source_row.get("Lí do"))
+    reason_unicode = clean_text(source_row.get("Lý do"))
+    reason_for_rpa = encode_reason(reason_unicode, reason_encoding)
 
     for column_name, column_index in target_headers.items():
         value = source_row.get(column_name, "")
@@ -333,6 +429,10 @@ def promote_row(
             value = reason_for_rpa
         elif column_name == RPA_REASON_UNICODE_COLUMN:
             value = reason_unicode
+        elif column_name == "Người nộp tiền" and flow == FLOW_THU_TIEN_MAT:
+            value = source_row.get("Người nộp/nhận tiền", "")
+        elif column_name == "Người nhận tiền" and flow == FLOW_CHI_TIEN_MAT:
+            value = source_row.get("Người nộp/nhận tiền", "")
         target_ws.cell(row=target_row_index, column=column_index, value=value)
 
     apply_number_formats(target_ws, target_headers, target_row_index)
@@ -346,8 +446,14 @@ def write_validation_error(
     status: str,
     errors: list[str],
 ) -> None:
-    ws.cell(row=row_index, column=headers[EXCEPTION_STATUS_COLUMN], value=status)
-    ws.cell(row=row_index, column=headers[MISSING_ERROR_COLUMN], value="; ".join(errors))
+    status_column = EXCEPTION_STATUS_COLUMN if EXCEPTION_STATUS_COLUMN in headers else LEGACY_EXCEPTION_STATUS_COLUMN
+    issue_column = MISSING_ERROR_COLUMN if MISSING_ERROR_COLUMN in headers else LEGACY_MISSING_ERROR_COLUMN
+    legacy_status = {
+        STATUS_MISSING_DATA: "thieu_du_lieu",
+        STATUS_INVALID_FLOW: "luong_khong_hop_le",
+    }.get(status, status)
+    ws.cell(row=row_index, column=headers[status_column], value=status if status_column == EXCEPTION_STATUS_COLUMN else legacy_status)
+    ws.cell(row=row_index, column=headers[issue_column], value="; ".join(errors))
 
 
 def write_promotion_success(
@@ -360,11 +466,20 @@ def write_promotion_success(
     target_sheet: str,
     promoted_at: str,
 ) -> None:
-    ws.cell(row=row_index, column=headers[EXCEPTION_STATUS_COLUMN], value=STATUS_PROMOTED)
-    ws.cell(row=row_index, column=headers[MISSING_ERROR_COLUMN], value="")
-    ws.cell(row=row_index, column=headers[PROMOTED_TO_INPUT_COLUMN], value="yes")
-    ws.cell(row=row_index, column=headers[PROMOTED_SHEET_COLUMN], value=target_sheet)
-    ws.cell(row=row_index, column=headers[PROMOTED_AT_COLUMN], value=promoted_at)
+    if EXCEPTION_STATUS_COLUMN in headers:
+        display_time = promoted_at.replace("T", " ")
+        ws.cell(
+            row=row_index,
+            column=headers[EXCEPTION_STATUS_COLUMN],
+            value=f"{STATUS_PROMOTED} vào {target_sheet} lúc {display_time}",
+        )
+        ws.cell(row=row_index, column=headers[MISSING_ERROR_COLUMN], value="")
+    else:
+        ws.cell(row=row_index, column=headers[LEGACY_EXCEPTION_STATUS_COLUMN], value=LEGACY_STATUS_PROMOTED)
+        ws.cell(row=row_index, column=headers[LEGACY_MISSING_ERROR_COLUMN], value="")
+        ws.cell(row=row_index, column=headers[PROMOTED_TO_INPUT_COLUMN], value="yes")
+        ws.cell(row=row_index, column=headers[PROMOTED_SHEET_COLUMN], value=target_sheet)
+        ws.cell(row=row_index, column=headers[PROMOTED_AT_COLUMN], value=promoted_at)
     if "transaction_uid" in headers:
         ws.cell(row=row_index, column=headers["transaction_uid"], value=transaction_uid)
     if "Mã định danh" in headers:
@@ -374,18 +489,18 @@ def write_promotion_success(
 
 
 def ensure_transaction_uid(row_data: dict[str, Any], row_index: int, existing_uids: set[str]) -> str:
-    candidate = clean_text(row_data.get("transaction_uid")) or clean_text(row_data.get("Mã định danh"))
+    candidate = clean_text(row_data.get("transaction_uid"))
     if candidate:
         return candidate
 
     fingerprint_parts = [
         str(row_index),
-        clean_text(row_data.get("File gốc")),
-        clean_text(row_data.get("Sheet gốc")),
-        clean_text(row_data.get("Dòng gốc")),
+        clean_text(row_data.get("source_file")),
+        clean_text(row_data.get("source_sheet")),
+        clean_text(row_data.get("source_row")),
         clean_text(row_data.get("Ngày CT")),
         clean_text(row_data.get("Thành tiền")),
-        clean_text(row_data.get("Nội dung giao dịch gốc")),
+        clean_text(row_data.get("Nội dung giao dịch")),
         clean_text(row_data.get(FLOW_COLUMN)),
     ]
     digest = hashlib.sha1("|".join(fingerprint_parts).encode("utf-8")).hexdigest()[:16]
@@ -398,9 +513,12 @@ def ensure_transaction_uid(row_data: dict[str, Any], row_index: int, existing_ui
     return uid
 
 
-def collect_existing_uids(workbook) -> set[str]:
+def collect_existing_uids(workbook, *, include_exception: bool = True) -> set[str]:
     uids: set[str] = set()
-    for sheet_name in [*RPA_INPUT_SHEETS, EXCEPTION_SHEET_NAME]:
+    sheet_names = list(RPA_INPUT_SHEETS)
+    if include_exception:
+        sheet_names.append(EXCEPTION_SHEET_NAME)
+    for sheet_name in sheet_names:
         if sheet_name not in workbook.sheetnames:
             continue
         ws = workbook[sheet_name]
@@ -454,38 +572,32 @@ def ensure_summary_rows(input_path: Path, promoted_records: list[PromotedRecord]
 def summary_record_from_promoted(record: PromotedRecord) -> dict[str, Any]:
     row = {column: "" for column in SUMMARY_COLUMNS}
     data = record.row_data
-    source_row = clean_text(data.get("Dòng gốc")) or record.exception_row
+    source_row = clean_text(data.get("source_row")) or record.exception_row
     bank = clean_text(data.get("Ngân hàng"))
-    reason = clean_text(data.get(RPA_REASON_UNICODE_COLUMN)) or clean_text(data.get("Lí do"))
+    source_file = clean_text(data.get("source_file"))
+    source_sheet = clean_text(data.get("source_sheet")) or EXCEPTION_SHEET_NAME
     row.update(
         {
+            "Ngày CT": data.get("Ngày CT") or "",
+            "Ngân hàng": bank,
+            "Luồng": record.flow,
+            "Nội dung giao dịch": clean_text(data.get("Nội dung giao dịch")),
+            "Mã ĐT": clean_text(data.get("Mã ĐT")),
+            "Tên ĐT": clean_text(data.get("Tên ĐT")),
+            "TK nợ": clean_text(data.get("TK nợ")),
+            "TK có": clean_text(data.get("TK có")),
+            "Thành tiền": data.get("Thành tiền") or "",
+            "Kết quả phân loại": STATUS_PROMOTED,
+            "Trạng thái RPA": STATUS_PENDING,
+            "Số chứng từ VACOM": "",
+            "Thông báo RPA": "",
+            "Thời gian hoàn thành": "",
+            "Nguồn sao kê": f"{source_file} | {source_sheet} | dòng {source_row}",
             "transaction_uid": record.transaction_uid,
-            "rpa_status": STATUS_PENDING,
-            "status": STATUS_PENDING,
-            "source_file": clean_text(data.get("File gốc")),
-            "source_sheet": clean_text(data.get("Sheet gốc")) or EXCEPTION_SHEET_NAME,
-            "source_row": source_row,
-            "source_row_index": source_row,
-            "transaction_date": data.get("Ngày CT") or "",
-            "bank": bank,
-            "bank_code": bank,
-            "flow": record.flow,
-            "direction": record.flow,
-            "amount": data.get("Thành tiền") or "",
-            "object_code": clean_text(data.get("Mã ĐT")),
-            "debit_account": clean_text(data.get("TK nợ")),
-            "credit_account": clean_text(data.get("TK có")),
-            "reason": reason,
-            "original_content": clean_text(data.get("Nội dung giao dịch gốc")),
-            "counterparty_raw": clean_text(data.get("Người hưởng/Người chuyển")),
-            "object_name": clean_text(data.get("Tên ĐT suy luận")),
-            "use_case": clean_text(data.get("Use case dự đoán")),
-            "processing_status": STATUS_PROMOTED,
-            "confidence": data.get("Độ tin cậy") or "",
-            "object_match_source": clean_text(data.get("Nguồn match ĐT")),
-            "created_at": record.promoted_at,
-            "updated_at": record.promoted_at,
             "last_run_id": record.run_id,
+            "last_attempt_result": "",
+            "rpa_started_at": "",
+            "rpa_finished_at": "",
         }
     )
     return row

@@ -572,6 +572,8 @@ rules:
     bank_scope: ["VCB", "ACB", "MSB"]
     include_keywords:
       - "BAN NGOAI TE"
+      # Trên sao kê ACB, tiền VND ghi Có khi ngân hàng mua ngoại tệ của công ty.
+      - "MUA NGOAI TE"
       - "BAN USD"
       - "BAN EUR"
       - "BAN JPY"
@@ -590,6 +592,7 @@ rules:
     object_catalog: none
     default_object_from_bank: true
     account_from_foreign_currency_bank: true
+    reason_template: "Bán ngoại tệ"
 
   - flow: bao_co
     rule_id: "loan_disbursement"
@@ -848,3 +851,474 @@ rules:
     priority: 100
     requires_object: true
     object_catalog: receivable
+
+  # ==== Rule đã xác nhận từ các chứng từ VACOM hoàn thành tháng 06/2026 ====
+  # Các cụm ngắn/dễ trùng luôn đi cùng ngữ cảnh hoặc số tiền. Không thêm rule
+  # cho "CHUYEN KHOAN VCB" (H01) theo quyết định của người dùng.
+
+  - flow: bao_no
+    rule_id: "confirmed_phb_freight_payment"
+    direction: "money_out"
+    use_case: "Trả cước vận chuyển Phúc Hải Bình"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["CT CHO PHB"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "HAIBINH"
+    reason_template: "TT cước vận chuyển"
+
+  - flow: bao_no
+    rule_id: "confirmed_mediamart_order_827967"
+    direction: "money_out"
+    use_case: "Trả đơn hàng Mediamart 827967"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["THANH TOAN DON HANG 827967"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "MEDIAMART VN"
+    reason_template: "TT tiền hàng"
+
+  - flow: bao_no
+    rule_id: "confirmed_hien_hospitality_expense"
+    direction: "money_out"
+    use_case: "Chi phí tiếp khách Trương Thị Hiền"
+    account: "141"
+    bank_scope: ["ACB"]
+    include_keywords: ["TRUONG THI HIEN"]
+    context_keywords: ["CHI PHI TIEP KHACH"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "HIEN"
+    reason_template: "TT phí tiếp khách"
+
+  - flow: bao_no
+    rule_id: "confirmed_lop_duy_phuong_vehicle_repair"
+    direction: "money_out"
+    use_case: "Trả phí sửa xe Lốp Duy Phương"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["LOP DUY PHUONG"]
+    context_keywords: ["THANH TOAN"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "LOPDUYPHUONG"
+    reason_template: "TT phí sửa xe"
+
+  - flow: bao_no
+    rule_id: "confirmed_quang_minh_crew_lodging"
+    direction: "money_out"
+    use_case: "Trả phí ăn nghỉ thuyền viên Quang Minh"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["DT DL QUANG MINH"]
+    context_keywords: ["TT CHO"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "QUANGMINH"
+    reason_template: "TT phí ăn nghỉ tv"
+
+  - flow: bao_no
+    rule_id: "confirmed_tan_phat_invoice_164"
+    direction: "money_out"
+    use_case: "Trả cước vận chuyển Tân Phát"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["TAN PHAT HD 164"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "TANPHAT"
+    reason_template: "TT cước vận chuyển"
+
+  - flow: bao_no
+    rule_id: "confirmed_duc_long_invoice_441"
+    direction: "money_out"
+    use_case: "Trả cước vận chuyển Đức Long"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["DUC LONG HD 441"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "DUCLONG"
+    reason_template: "TT cước vận chuyển"
+
+  - flow: bao_no
+    rule_id: "confirmed_urban_cleaning_service"
+    direction: "money_out"
+    use_case: "Trả phí dịch vụ vệ sinh đô thị"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["PHI DICH VU VE SINH"]
+    context_keywords: ["HD 16319"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "MOITRUONGDOTHI"
+    reason_template: "TT phí dịch vụ vệ sinh"
+
+  - flow: bao_no
+    rule_id: "confirmed_vietsea_fbmc_b_service"
+    direction: "money_out"
+    use_case: "Trả phí làm tàu FBMC B"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["BIEN VIET"]
+    context_keywords: ["TAU FBMC B"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "VIETSEA"
+    reason_template: "TT phí làm tàu"
+
+  - flow: bao_no
+    rule_id: "confirmed_national_bidding_fee"
+    direction: "money_out"
+    use_case: "Trả phí hồ sơ dự thầu quốc gia"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["CHI PHI NOP HS DU THAU"]
+    context_keywords: ["TBMT"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "DAUTHAUQUOCGIA"
+    reason_template: "TT phí dự thầu"
+
+  - flow: bao_no
+    rule_id: "confirmed_lam_dong_quarantine_fee"
+    direction: "money_out"
+    use_case: "Trả phí kiểm dịch Lâm Đồng"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["KIEM SOAT BENH TAT TINH LAM DONG"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "KDYT-LD"
+    reason_template: "TT phí kiểm dịch"
+
+  - flow: bao_no
+    rule_id: "confirmed_vetc_road_fee"
+    direction: "money_out"
+    use_case: "Trả cước đường bộ VETC"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["CUOC DUONG BO VETC"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "VETC"
+    reason_template: "TT cước đường bộ"
+
+  - flow: bao_no
+    rule_id: "confirmed_long_son_invoice_1110"
+    direction: "money_out"
+    use_case: "Trả tiền hàng Cảng Quốc tế Long Sơn"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["CANG QT LONG SON HD 1110"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "LONGSON"
+    reason_template: "TT tiền hàng (Công ty TNHH Long Sơn)"
+
+  - flow: bao_no
+    rule_id: "confirmed_duc_house_rent_2026"
+    direction: "money_out"
+    use_case: "Trả tiền thuê nhà Lê Ngọc Đức"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["LE NGOC DUC"]
+    context_keywords: ["THUE NHA", "NAM 2026"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "DUC"
+    reason_template: "TT tiền thuê nhà"
+
+  - flow: bao_no
+    rule_id: "confirmed_geic_invoice_36050"
+    direction: "money_out"
+    use_case: "Trả hóa đơn GEIC 36050"
+    account: "331"
+    bank_scope: ["ACB"]
+    include_keywords: ["GEIC HD 36050"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "CONGNGHIEP GEIC"
+    reason_template: "TT HĐ 36050"
+
+  - flow: bao_co
+    rule_id: "confirmed_vosco_lst_crew_change"
+    direction: "money_in"
+    use_case: "Thu phí thay đổi thuyền viên tàu LST"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["TT CP THAY TV TAU LST"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "VOSCO"
+    reason_template: "TT phí thay đổi tv"
+
+  - flow: bao_co
+    rule_id: "confirmed_hb68_agency_fee"
+    direction: "money_in"
+    use_case: "Thu phí đại lý Hòa Bình 68"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["CTY HB68"]
+    context_keywords: ["PHI DAI LI"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "HOABINH68"
+    reason_template: "TT phí đại lý"
+
+  - flow: bao_co
+    rule_id: "confirmed_waterproof_invoice_848"
+    direction: "money_in"
+    use_case: "Thu tiền chống thấm hóa đơn 848"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["THANH TOAN THEO HOA DON 848"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    amount_equals: 53572162
+    default_object_code: "BON"
+    reason_template: "TT tiền hàng chống thấm HĐ 848"
+
+  - flow: bao_co
+    rule_id: "confirmed_nam_waterproof_invoice_838"
+    direction: "money_in"
+    use_case: "Thu tiền chống thấm hóa đơn 838"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["NGUYEN THAC NAM THANH TOAN THEO HD SO 838"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "NAM"
+    reason_template: "TT tiền hàng chống thấm HĐ 838"
+
+  - flow: bao_co
+    rule_id: "confirmed_chau_luc_port_charges"
+    direction: "money_in"
+    use_case: "Thu tiền cảng phí Châu Lục"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["GN VA VT QT CHAU LUC"]
+    context_keywords: ["TAU UML VICTORIA MIPEC"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "CHAULUC"
+    reason_template: "TT tiền cảng phí"
+
+  - flow: bao_co
+    rule_id: "confirmed_dinh_vu_office_rent"
+    direction: "money_in"
+    use_case: "Thu tiền thuê văn phòng Đình Vũ"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["CONG TY DINH VU"]
+    context_keywords: ["THUE VPDIEN NUOC"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "CONTAINERDINHVU"
+    reason_template: "TT tiền thuê vp"
+
+  - flow: bao_co
+    rule_id: "confirmed_safe_invoice_852"
+    direction: "money_in"
+    use_case: "Thu tiền két sắt hóa đơn 852"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["THIEN AN PHUC TT TIEN KET SAT"]
+    context_keywords: ["HD 852"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "001"
+    reason_template: "TT tiền két sắt"
+
+  - flow: bao_co
+    rule_id: "confirmed_waterproof_invoice_822"
+    direction: "money_in"
+    use_case: "Thu tiền chống thấm hóa đơn 822"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["THANH TOAN TIEN CHONG THAM THEO HD 822"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    amount_equals: 163246902
+    default_object_code: "DONG"
+    reason_template: "TT tiền hàng chống thấm HĐ 822"
+
+  - flow: bao_co
+    rule_id: "confirmed_tx_logistics_utilities"
+    direction: "money_in"
+    use_case: "Thu tiền điện nước TX Logistics"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["TX T T TIEN DIEN NUOC"]
+    context_keywords: ["VAN PHONG HAI PHONG"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "LOGISTICSVIETNAM"
+    reason_template: "TT tiền điện nước"
+
+  - flow: bao_co
+    rule_id: "confirmed_tiep_van_tt_utilities"
+    direction: "money_in"
+    use_case: "Thu tiền điện nước Tiếp Vận T&T"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["PHI DICH VU DIEN NUOC TOA NHA"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    amount_equals: 4839441
+    default_object_code: "TIEPVAN T&T"
+    reason_template: "TT tiền điện nước"
+
+  - flow: bao_co
+    rule_id: "confirmed_agris_gia_lai_goods"
+    direction: "money_in"
+    use_case: "Thu tiền hàng Agris Gia Lai"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["AGRIS GL"]
+    context_keywords: ["MUA VOI"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    default_object_code: "GIALAI"
+    reason_template: "TT tiền hàng"
+
+  - flow: bao_co
+    rule_id: "confirmed_retail_delivery_order_fee"
+    direction: "money_in"
+    use_case: "Thu phí cấp lệnh khách lẻ"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["STSTMSHP2606107"]
+    context_keywords: []
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    amount_equals: 1100000
+    default_object_code: "001"
+    reason_template: "TT phí cấp lệnh"
+
+  - flow: bao_co
+    rule_id: "confirmed_zhi_tuo_safe_invoice_915"
+    direction: "money_in"
+    use_case: "Thu tiền két sắt khách lẻ hóa đơn 915"
+    account: "131"
+    bank_scope: ["ACB"]
+    include_keywords: ["ZHI TUO THANH TOAN TIEN"]
+    context_keywords: ["HOA DON 915"]
+    context_required: true
+    exclude_keywords: []
+    auto_process: true
+    priority: 2
+    requires_object: false
+    object_catalog: none
+    amount_equals: 12960000
+    default_object_code: "001"
+    reason_template: "TT tiền két sắt"

@@ -4,6 +4,7 @@ from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
+import pytest
 from openpyxl import load_workbook
 
 from src.config_loader import load_config, load_rules
@@ -53,9 +54,7 @@ def _statement_sample(filename: str) -> Path:
 
 
 def _config() -> dict:
-    config = load_config(PROJECT_ROOT / "config" / "config.yaml")
-    config["ml"]["enabled"] = False
-    return config
+    return load_config(PROJECT_ROOT / "config" / "config.yaml")
 
 
 def _engine() -> RuleEngine:
@@ -148,10 +147,20 @@ def _process_real(description: str, debit: float = 0, credit: float = 0, bank: s
 
 
 def test_parsers_read_real_acb_vcb_msb_and_skip_msb_totals():
-    acb = ACBParser().parse(_statement_sample("5614249_SAOKE_TK_202604 (2).xlsx"))
-    vcb = VCBParser().parse(_statement_sample("lich-su-giao-dich-tai-khoan VCB T4.26.xls"))
+    sample_names = [
+        "5614249_SAOKE_TK_202604 (2).xlsx",
+        "lich-su-giao-dich-tai-khoan VCB T4.26.xls",
+        "ReportIBSCorpAccountStatement_20260526165427.xlsx",
+    ]
+    sample_paths = [_statement_sample(name) for name in sample_names]
+    missing = [path.name for path in sample_paths if not path.exists()]
+    if missing:
+        pytest.skip(f"Thiếu fixture sao kê thực: {', '.join(missing)}")
+
+    acb = ACBParser().parse(sample_paths[0])
+    vcb = VCBParser().parse(sample_paths[1])
     msb_parser = MSBParser()
-    msb = msb_parser.parse(_statement_sample("ReportIBSCorpAccountStatement_20260526165427.xlsx"))
+    msb = msb_parser.parse(sample_paths[2])
 
     assert any(item.debit_amount > 0 for item in acb)
     assert any(item.credit_amount > 0 for item in acb)
@@ -202,15 +211,15 @@ def test_bao_co_rules_use_specific_accounts_before_customer_receivable():
     assert hoan_vay.matched_rule == "personal_advance_refund_to_company"
     fx1 = _process("M1HH/KHDN/ MUA TU BAO CO SO TIEN 42000 USD, TY GIA 26.217", credit=1101114000, bank="ACB")
     assert fx1.status == "OK"
-    assert fx1.credit_account == "1122CT"
+    assert fx1.credit_account == "1122ACB"
     assert fx1.object_code == "ACB"
     assert fx1.foreign_currency == "USD"
     assert fx1.foreign_amount == 42000
     assert fx1.exchange_rate == 26217
-    assert fx1.reason == "Bán ngoại tệ 42000 USD tỷ giá 26217"
+    assert fx1.reason == fx1.use_case
     fx2 = _process("M1HH/KHDN/ MUA TU BAO CO KH SO TIEN 50.000 USD, TY GIA 26228,", credit=1311400000, bank="ACB")
     assert fx2.status == "OK"
-    assert fx2.credit_account == "1122CT"
+    assert fx2.credit_account == "1122ACB"
     assert fx2.foreign_amount == 50000
     assert fx2.exchange_rate == 26228
 
@@ -633,22 +642,32 @@ def test_internal_advance_hoang_anh_uses_hoanganh_not_hoang():
     assert result.reason == "Tạm ứng cá nhân HOANGANH"
 
 
-def test_rule_first_does_not_call_ml_when_rule_matched():
-    class RaisingClassifier:
-        def predict(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            raise AssertionError("ML should not be called after a rule match")
-
+def test_rule_match_processes_transaction_without_fallback():
     result = process_transaction(
         _txn("TRA LAI TAI KHOAN", credit=100),
         _config(),
         _engine(),
         ObjectMatcher([]),
         ObjectMatcher([]),
-        classifier=RaisingClassifier(),
     )
     assert result.status == "OK"
     assert result.flow == FLOW_BAO_CO
     assert result.credit_account == "515"
+
+
+def test_unmatched_transaction_goes_to_exception():
+    result = process_transaction(
+        _txn("NO KNOWN ACCOUNTING RULE", credit=100),
+        _config(),
+        _engine(),
+        ObjectMatcher([]),
+        ObjectMatcher([]),
+    )
+
+    assert result.status == "ERROR"
+    assert result.matched_rule == ""
+    assert result.use_case == ""
+    assert "Không nhận diện được use case" in result.error_note
 
 
 def test_output_has_four_pad_sheets_with_exchange_rate_column(tmp_path):
@@ -662,19 +681,26 @@ def test_output_has_four_pad_sheets_with_exchange_rate_column(tmp_path):
     write_excel(items, output_file, run_id="run1", run_stats={"skipped_non_transaction_rows": 3})
     wb = load_workbook(output_file, data_only=True)
 
+    assert wb.sheetnames == [
+        "BAO_NO_INPUT",
+        "BAO_CO_INPUT",
+        "THU_TIEN_MAT_INPUT",
+        "CHI_TIEN_MAT_INPUT",
+        "EXCEPTION",
+    ]
     for sheet_name in ["BAO_NO_INPUT", "BAO_CO_INPUT", "THU_TIEN_MAT_INPUT", "CHI_TIEN_MAT_INPUT"]:
         assert sheet_name in wb.sheetnames
+        ws = wb[sheet_name]
         if sheet_name == "THU_TIEN_MAT_INPUT":
             expected_columns = RPA_THU_TIEN_MAT_COLUMNS
         elif sheet_name == "CHI_TIEN_MAT_INPUT":
             expected_columns = RPA_CHI_TIEN_MAT_COLUMNS
         else:
             expected_columns = RPA_BUSINESS_COLUMNS
-        assert [cell.value for cell in wb[sheet_name][1]] == expected_columns
-        assert wb[sheet_name].max_column == len(expected_columns)
-    assert "RPA_TASKS" in wb.sheetnames
-    assert "AUDIT_LOG" in wb.sheetnames
-    assert "MANUAL_REVIEW" in wb.sheetnames
+        assert [cell.value for cell in ws[1]] == expected_columns
+        assert ws.max_column == len(expected_columns)
+        for column_index in range(ws.max_column - 4, ws.max_column + 1):
+            assert ws.column_dimensions[ws.cell(1, column_index).column_letter].hidden is True
 
 
 def test_rpa_input_exports_foreign_exchange_rate(tmp_path):
@@ -710,11 +736,11 @@ def test_cash_flows_export_recipient_name(tmp_path):
 
     thu_headers = [cell.value for cell in wb["THU_TIEN_MAT_INPUT"][1]]
     thu_values = dict(zip(thu_headers, [cell.value for cell in wb["THU_TIEN_MAT_INPUT"][2]]))
-    assert thu_values["Người nhận tiền"] == "LE THI THANH HOA"
+    assert thu_values["Người nộp tiền"] == "LE THI THANH HOA"
 
     chi_headers = [cell.value for cell in wb["CHI_TIEN_MAT_INPUT"][1]]
     chi_values = dict(zip(chi_headers, [cell.value for cell in wb["CHI_TIEN_MAT_INPUT"][2]]))
-    assert chi_values["Người nộp tiền"] == "LE THI THANH HOA"
+    assert chi_values["Người nhận tiền"] == "LE THI THANH HOA"
 
 
 def test_integration_process_real_samples_and_write_outputs(tmp_path):
@@ -735,6 +761,49 @@ def test_integration_process_real_samples_and_write_outputs(tmp_path):
     wb = load_workbook(result.excel_path, data_only=True)
 
     assert len(processed) > 0
+    assert len(processed) == 187
+    assert sum(item.status == "OK" for item in processed) == 181
+    assert sorted(item.original_row_index for item in processed if item.status != "OK") == [10, 11, 33, 62, 63, 64]
+
+    confirmed = {
+        12: ("bao_co", "VOSCO", "TT phí thay đổi tv", "1121CT", "131"),
+        21: ("bao_no", "HAIBINH", "TT cước vận chuyển", "331", "1121CT"),
+        23: ("bao_no", "MEDIAMART VN", "TT tiền hàng", "331", "1121CT"),
+        39: ("bao_co", "HOABINH68", "TT phí đại lý", "1121CT", "131"),
+        61: ("bao_co", "BON", "TT tiền hàng chống thấm HĐ 848", "1121CT", "131"),
+        65: ("bao_co", "NAM", "TT tiền hàng chống thấm HĐ 838", "1121CT", "131"),
+        70: ("bao_no", "HIEN", "TT phí tiếp khách", "141", "1121CT"),
+        84: ("bao_no", "LOPDUYPHUONG", "TT phí sửa xe", "331", "1121CT"),
+        86: ("bao_co", "CHAULUC", "TT tiền cảng phí", "1121CT", "131"),
+        87: ("bao_co", "CHAULUC", "TT tiền cảng phí", "1121CT", "131"),
+        88: ("bao_co", "CHAULUC", "TT tiền cảng phí", "1121CT", "131"),
+        89: ("bao_co", "CHAULUC", "TT tiền cảng phí", "1121CT", "131"),
+        90: ("bao_co", "CHAULUC", "TT tiền cảng phí", "1121CT", "131"),
+        92: ("bao_no", "QUANGMINH", "TT phí ăn nghỉ tv", "331", "1121CT"),
+        93: ("bao_co", "CONTAINERDINHVU", "TT tiền thuê vp", "1121CT", "131"),
+        95: ("bao_co", "ACB", "Bán ngoại tệ", "1121CT", "1122ACB"),
+        108: ("bao_no", "TANPHAT", "TT cước vận chuyển", "331", "1121CT"),
+        109: ("bao_no", "DUCLONG", "TT cước vận chuyển", "331", "1121CT"),
+        112: ("bao_co", "001", "TT tiền két sắt", "1121CT", "131"),
+        114: ("bao_co", "DONG", "TT tiền hàng chống thấm HĐ 822", "1121CT", "131"),
+        121: ("bao_no", "MOITRUONGDOTHI", "TT phí dịch vụ vệ sinh", "331", "1121CT"),
+        130: ("bao_no", "VIETSEA", "TT phí làm tàu", "331", "1121CT"),
+        132: ("bao_co", "LOGISTICSVIETNAM", "TT tiền điện nước", "1121CT", "131"),
+        141: ("bao_no", "DAUTHAUQUOCGIA", "TT phí dự thầu", "331", "1121CT"),
+        148: ("bao_no", "KDYT-LD", "TT phí kiểm dịch", "331", "1121CT"),
+        154: ("bao_no", "VETC", "TT cước đường bộ", "331", "1121CT"),
+        155: ("bao_co", "TIEPVAN T&T", "TT tiền điện nước", "1121CT", "131"),
+        164: ("bao_co", "GIALAI", "TT tiền hàng", "1121CT", "131"),
+        176: ("bao_no", "LONGSON", "TT tiền hàng (Công ty TNHH Long Sơn)", "331", "1121CT"),
+        177: ("bao_co", "001", "TT phí cấp lệnh", "1121CT", "131"),
+        185: ("bao_co", "001", "TT tiền két sắt", "1121CT", "131"),
+        189: ("bao_no", "DUC", "TT tiền thuê nhà", "331", "1121CT"),
+        195: ("bao_no", "CONGNGHIEP GEIC", "TT HĐ 36050", "331", "1121CT"),
+    }
+    by_row = {item.original_row_index: item for item in processed}
+    for row_index, expected in confirmed.items():
+        item = by_row[row_index]
+        assert (item.flow, item.object_code, item.reason, item.debit_account, item.credit_account) == expected
     assert not any(item.bank == "MSB" and item.original_row_index >= 118 for item in processed)
     for sheet_name in ["BAO_NO_INPUT", "BAO_CO_INPUT", "THU_TIEN_MAT_INPUT", "CHI_TIEN_MAT_INPUT"]:
         assert sheet_name in wb.sheetnames
@@ -748,5 +817,10 @@ def test_integration_process_real_samples_and_write_outputs(tmp_path):
             expected_columns = list(expected_columns)
             expected_columns.insert(expected_columns.index("Lí do") + 1, RPA_REASON_UNICODE_COLUMN)
         assert [cell.value for cell in wb[sheet_name][1]] == expected_columns
-    assert "SUMMARY" in wb.sheetnames
-    assert "RPA_TASKS" in wb.sheetnames
+    assert wb.sheetnames == [
+        "BAO_NO_INPUT",
+        "BAO_CO_INPUT",
+        "THU_TIEN_MAT_INPUT",
+        "CHI_TIEN_MAT_INPUT",
+        "EXCEPTION",
+    ]

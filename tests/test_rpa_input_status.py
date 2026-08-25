@@ -21,7 +21,7 @@ from src.rpa_input_status import (
     RpaInputStatusError,
     update_input_file_status,
 )
-from src.rpa_summary import SUMMARY_COLUMNS, SUMMARY_SHEET_NAME, write_summary
+from src.rpa_summary import MESSAGE_COLUMN, STATUS_COLUMN, SUMMARY_COLUMNS, SUMMARY_SHEET_NAME, write_summary
 from src.rpa_tracking import STATUS_DONE, STATUS_PENDING
 
 
@@ -75,7 +75,7 @@ def _sheet_row(path, sheet_name: str = "BAO_NO_INPUT") -> tuple[list[str], dict[
 
 def _write_summary(path, uid: str) -> None:
     row = {column: "" for column in SUMMARY_COLUMNS}
-    row.update({"transaction_uid": uid, "status": STATUS_PENDING, "rpa_status": STATUS_PENDING})
+    row.update({"transaction_uid": uid, STATUS_COLUMN: STATUS_PENDING})
     write_summary(pd.DataFrame([row], columns=SUMMARY_COLUMNS), path)
 
 
@@ -178,8 +178,8 @@ def test_update_status_cli_updates_multiple_input_files(tmp_path, monkeypatch):
     summary_df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
     summary_df = summary_df.where(pd.notna(summary_df), "")
     row = summary_df[summary_df["transaction_uid"] == "uid_done"].iloc[0]
-    assert row["rpa_status"] == STATUS_DONE
-    assert row["rpa_message"] == "Nhap thanh cong"
+    assert row[STATUS_COLUMN] == STATUS_DONE
+    assert row[MESSAGE_COLUMN] == "Nhap thanh cong"
 
 
 def test_update_status_cli_returns_1_when_one_input_file_cannot_find_uid(tmp_path, monkeypatch, capsys):
@@ -243,4 +243,4 @@ def test_update_status_cli_returns_1_for_missing_input_file(tmp_path, monkeypatc
     assert update_cli.main() == 1
     summary_df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
     row = summary_df[summary_df["transaction_uid"] == "uid_done"].iloc[0]
-    assert row["rpa_status"] == STATUS_PENDING
+    assert row[STATUS_COLUMN] == STATUS_PENDING

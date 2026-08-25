@@ -27,8 +27,7 @@ def main() -> int:
     config_path = _resolve_path(args.config, project_root)
     config = load_config(config_path)
     output_dir = _resolve_path(args.output_dir, project_root)
-    log_file = config.get("output", {}).get("log_file", "agent_run.log")
-    logger = setup_logger(output_dir, log_file)
+    logger = setup_logger()
 
     input_dir = _resolve_path(args.input_dir, project_root)
     statements_dir = _resolve_path(args.statements, project_root) if args.statements else input_dir / "statements"

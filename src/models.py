@@ -55,7 +55,6 @@ class ObjectCandidate:
     tax_code: str = ""
     group_name: str = ""
     group_code: str = ""
-    ml_score: float = 0.0
 
 
 @dataclass
@@ -106,28 +105,6 @@ class ExtractedEntities:
 
 
 @dataclass
-class ClassificationResult:
-    use_case: str = ""
-    account: str = ""
-    confidence: float = 0.0
-    source: str = "none"
-    status: str = "NO_MODEL"
-    note: str = ""
-
-
-@dataclass
-class ObjectRankResult:
-    status: str = "NO_MODEL"
-    best_code: str = ""
-    best_name: str = ""
-    confidence: float = 0.0
-    gap: float = 0.0
-    decision: str = "FALLBACK"
-    note: str = ""
-    ranked_candidates: list[ObjectCandidate] = field(default_factory=list)
-
-
-@dataclass
 class VerificationResult:
     status: str = "OK"
     error_note: str = ""
@@ -160,8 +137,6 @@ class ProcessedTransaction:
     matched_rule: str = ""
     raw_data: dict[str, Any] = field(default_factory=dict)
     entities: ExtractedEntities = field(default_factory=ExtractedEntities)
-    ml_result: ClassificationResult = field(default_factory=ClassificationResult)
-    object_ml_result: ObjectRankResult = field(default_factory=ObjectRankResult)
     verification_result: VerificationResult = field(default_factory=VerificationResult)
     object_match_source: str = ""
     transaction_uid: str = ""

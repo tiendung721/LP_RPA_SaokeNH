@@ -48,3 +48,15 @@ def test_project_overrides_use_exact_phrase_for_ils():
     assert overrides["receivable"]["exact_phrases"]["TAU BIEN SAI GON"] == "TAUBIENSAIGON"
     assert overrides["internal"]["exact_phrases"]["HOANG ANH"] == "HOANGANH"
     assert any(obj.code == "HOANGANH" for obj in overrides["internal"]["supplemental_objects"])
+
+
+def test_confirmed_june_2026_aliases_use_vacom_object_codes():
+    overrides = load_object_overrides("config/object_overrides.yaml")
+
+    assert overrides["receivable"]["exact_phrases"]["CTY HB68"] == "HOABINH68"
+    assert overrides["receivable"]["exact_phrases"]["GN VA VT QT CHAU LUC"] == "CHAULUC"
+    assert overrides["receivable"]["exact_phrases"]["AGRIS GL"] == "GIALAI"
+    assert overrides["payable"]["exact_phrases"]["CT CHO PHB"] == "HAIBINH"
+    assert overrides["payable"]["exact_phrases"]["TAN PHAT HD 164"] == "TANPHAT"
+    assert overrides["payable"]["exact_phrases"]["DUC LONG HD 441"] == "DUCLONG"
+    assert overrides["payable"]["exact_phrases"]["CUOC DUONG BO VETC"] == "VETC"

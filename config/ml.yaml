@@ -1,9 +1,0 @@
-ml:
-  enabled: false
-  object_ranker_enabled: true
-  transaction_classifier_model: "models/transaction_classifier.joblib"
-  object_ranker_model: "models/object_ranker.joblib"
-  min_classification_confidence: 0.75
-  min_object_confidence: 0.85
-  min_object_gap: 0.15
-  object_ranker_min_training_rows: 50

@@ -9,429 +9,205 @@ from openpyxl import load_workbook
 
 import update_rpa_status as update_cli
 from src.models import ProcessedTransaction
-from src.output_writer import RPA_BUSINESS_COLUMNS, write_outputs
+from src.output_writer import write_outputs
 from src.rpa_summary import (
-    STATUS_DONE,
-    STATUS_PENDING,
+    COMPLETED_COLUMN,
+    MESSAGE_COLUMN,
+    STATUS_COLUMN,
     SUMMARY_COLUMNS,
     SUMMARY_SHEET_NAME,
+    SUMMARY_TECHNICAL_COLUMNS,
+    VOUCHER_COLUMN,
     abort_rpa_run,
-    finalize_rpa_run,
     mark_rpa_done,
+    mark_rpa_error,
     mark_rpa_started,
     reset_all_rpa_status,
     write_summary,
 )
-from src.rpa_tracking import reset_all_records
+from src.rpa_tracking import STATUS_DONE, STATUS_PENDING, reset_all_records
 
 
 def _processed(uid: str, row_index: int, amount: int = 1000) -> ProcessedTransaction:
     return ProcessedTransaction(
-        source_file="sample.xlsx",
-        original_row_index=row_index,
-        bank="ACB",
-        flow="bao_no",
-        transaction_date=date(2026, 4, 1),
-        object_code="ABC",
-        object_name="ABC",
-        reason="Thanh toán ABC",
-        debit_account="331",
-        credit_account="1121CT",
-        amount=amount,
-        use_case="Chi phí thanh toán",
-        original_content=f"TT CHO ABC {row_index}",
-        counterparty_raw="ABC",
-        doc_no=str(row_index),
-        status="OK",
-        error_note="",
-        confidence=0.95,
-        transaction_uid=uid,
-        source_sheet="Statement",
+        source_file="sample.xlsx", original_row_index=row_index, bank="ACB", flow="bao_no",
+        transaction_date=date(2026, 4, 1), object_code="ABC", object_name="ABC",
+        reason="Thanh toán ABC", debit_account="331", credit_account="1121CT", amount=amount,
+        use_case="Chi phí thanh toán", original_content=f"TT CHO ABC {row_index}", counterparty_raw="ABC",
+        doc_no=str(row_index), status="OK", error_note="", confidence=0.95,
+        transaction_uid=uid, source_sheet="Statement",
     )
 
 
-def test_write_outputs_filters_completed_summary_rows(tmp_path):
+def _new_summary_row(uid: str, status: str = STATUS_PENDING) -> dict[str, object]:
+    row = {column: "" for column in SUMMARY_COLUMNS}
+    row.update(
+        {
+            "Ngày CT": date(2026, 4, 1), "Ngân hàng": "ACB", "Luồng": "bao_no",
+            "Nội dung giao dịch": "TT CHO ABC", "Mã ĐT": "ABC", "Tên ĐT": "ABC",
+            "TK nợ": "331", "TK có": "1121CT", "Thành tiền": 1000,
+            "Kết quả phân loại": "OK", STATUS_COLUMN: status,
+            "Nguồn sao kê": "sample.xlsx | Statement | dòng 2", "transaction_uid": uid,
+        }
+    )
+    return row
+
+
+def _legacy_summary(path, rows: list[dict[str, object]]) -> None:
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, sheet_name=SUMMARY_SHEET_NAME, index=False)
+        pd.DataFrame([{"rpa_status": "chua_nhap", "count": len(rows)}]).to_excel(
+            writer, sheet_name="STATUS_COUNTS", index=False
+        )
+
+
+def _read(path) -> pd.DataFrame:
+    return pd.read_excel(path, sheet_name=SUMMARY_SHEET_NAME, dtype=object).fillna("")
+
+
+def test_legacy_summary_is_backed_up_migrated_and_completed_rows_are_filtered(tmp_path):
     summary_path = tmp_path / "rpa_summary.xlsx"
-    existing_summary = pd.DataFrame(
+    _legacy_summary(
+        summary_path,
         [
             {
-                "transaction_uid": "uid_done",
-                "source_file": "sample.xlsx",
-                "source_sheet": "Statement",
-                "source_row_index": 2,
-                "bank": "ACB",
-                "flow": "bao_no",
-                "transaction_date": date(2026, 4, 1),
-                "doc_no": "2",
-                "original_content": "TT CHO ABC 2",
-                "counterparty_raw": "ABC",
-                "amount": 1000,
-                "object_code": "ABC",
-                "object_name": "ABC",
-                "debit_account": "331",
-                "credit_account": "1121CT",
-                "reason": "Thanh toán ABC",
-                "status": STATUS_DONE,
-                "last_run_id": "old_run",
-                "rpa_started_at": "2026-04-01T08:00:00",
-                "rpa_finished_at": "2026-04-01T08:01:00",
-                "rpa_message": "",
-                "voucher_no": "BN001",
-                "created_at": "2026-04-01T08:00:00",
-                "updated_at": "2026-04-01T08:01:00",
+                "transaction_uid": "uid_done", "source_file": "sample.xlsx", "source_sheet": "Statement",
+                "source_row_index": 2, "bank": "ACB", "flow": "bao_no", "transaction_date": date(2026, 4, 1),
+                "original_content": "TT CHO ABC 2", "amount": 1000, "object_code": "ABC", "object_name": "ABC",
+                "debit_account": "331", "credit_account": "1121CT", "status": STATUS_DONE,
+                "voucher_no": "BN001", "completed_at": "2026-04-01T08:01:00", "last_run_id": "old_run",
             }
         ],
-        columns=SUMMARY_COLUMNS,
     )
-    write_summary(existing_summary, summary_path)
+    result = write_outputs([_processed("uid_done", 2), _processed("uid_new", 3)], tmp_path, {"output": {}})
 
-    config = {
-        "output": {
-            "excel_file": "rpa_input.xlsx",
-            "tracking_file": "rpa_tracking.json",
-            "summary_file": "rpa_summary.xlsx",
-        }
-    }
-    write_outputs([_processed("uid_done", 2), _processed("uid_new", 3)], tmp_path, config)
+    input_wb = load_workbook(result.excel_path, data_only=True)
+    assert input_wb.sheetnames == ["BAO_NO_INPUT", "BAO_CO_INPUT", "THU_TIEN_MAT_INPUT", "CHI_TIEN_MAT_INPUT", "EXCEPTION"]
+    assert input_wb["BAO_NO_INPUT"].max_row == 2
+    summary_wb = load_workbook(summary_path)
+    assert summary_wb.sheetnames == [SUMMARY_SHEET_NAME]
+    rows = _read(summary_path).set_index("transaction_uid")
+    assert rows.at["uid_done", STATUS_COLUMN] == STATUS_DONE
+    assert rows.at["uid_done", VOUCHER_COLUMN] == "BN001"
+    assert rows.at["uid_new", STATUS_COLUMN] == STATUS_PENDING
+    backups = list((tmp_path / "backup").glob("rpa_summary_before_simplify_*.xlsx"))
+    assert len(backups) == 1
 
-    assert not (tmp_path / "rpa_tracking.json").exists()
-    wb = load_workbook(tmp_path / "rpa_input.xlsx", data_only=True)
-    assert wb["BAO_NO_INPUT"].max_row == 2
-    headers = [cell.value for cell in wb["BAO_NO_INPUT"][1]]
-    values = dict(zip(headers, [cell.value for cell in wb["BAO_NO_INPUT"][2]]))
-    assert values["Thành tiền"] == 1000
-    assert wb["RPA_TASKS"].max_row == 2
-    task_headers = [cell.value for cell in wb["RPA_TASKS"][1]]
-    task_values = dict(zip(task_headers, [cell.value for cell in wb["RPA_TASKS"][2]]))
-    assert task_values["transaction_uid"] == "uid_new"
-    assert task_values["source_row_index"] == 3
-
-    summary_df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    statuses = dict(zip(summary_df["transaction_uid"], summary_df["status"]))
-    assert statuses["uid_done"] == STATUS_DONE
-    assert statuses["uid_new"] == STATUS_PENDING
+    write_outputs([_processed("uid_new", 3)], tmp_path, {"output": {}})
+    assert len(list((tmp_path / "backup").glob("rpa_summary_before_simplify_*.xlsx"))) == 1
 
 
-def test_write_outputs_uses_summary_over_legacy_tracking_json(tmp_path):
+def test_summary_ignores_legacy_tracking_json_and_keeps_history(tmp_path):
     tracking_path = tmp_path / "rpa_tracking.json"
-    tracking_record = {
-        "transaction_uid": "uid_excel_wins",
-        "rpa_status": STATUS_DONE,
-        "status": STATUS_DONE,
-        "completed_at": "2026-04-01T08:01:00",
-    }
-    tracking_path.write_text(json.dumps([tracking_record], ensure_ascii=False), encoding="utf-8")
-
-    config = {
-        "output": {
-            "excel_file": "rpa_input.xlsx",
-            "tracking_file": "rpa_tracking.json",
-            "summary_file": "rpa_summary.xlsx",
-        }
-    }
-    result = write_outputs([_processed("uid_excel_wins", 2)], tmp_path, config)
-
-    wb = load_workbook(result.excel_path, data_only=True)
-    assert wb["BAO_NO_INPUT"].max_row == 2
-    summary_df = pd.read_excel(result.summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    row = summary_df[summary_df["transaction_uid"] == "uid_excel_wins"].iloc[0]
-    assert row["rpa_status"] == STATUS_PENDING
+    tracking_record = {"transaction_uid": "uid_excel_wins", "rpa_status": STATUS_DONE}
+    tracking_path.write_text(json.dumps([tracking_record]), encoding="utf-8")
+    result = write_outputs([_processed("uid_excel_wins", 2)], tmp_path, {"output": {}})
+    rows = _read(result.summary_path).set_index("transaction_uid")
+    assert rows.at["uid_excel_wins", STATUS_COLUMN] == STATUS_PENDING
     assert json.loads(tracking_path.read_text(encoding="utf-8")) == [tracking_record]
 
 
-def test_write_outputs_reexports_legacy_non_done_rows_as_pending(tmp_path):
+def test_summary_status_helpers_and_cli_keep_public_interface(tmp_path, monkeypatch):
     summary_path = tmp_path / "rpa_summary.xlsx"
-    existing_summary = pd.DataFrame(
-        [
-            {
-                "transaction_uid": "uid_in_progress",
-                "source_file": "sample.xlsx",
-                "source_sheet": "Statement",
-                "source_row_index": 2,
-                "bank": "ACB",
-                "flow": "bao_no",
-                "status": "dang_nhap",
-                "created_at": "2026-04-01T08:00:00",
-                "updated_at": "2026-04-01T08:00:00",
-            },
-            {
-                "transaction_uid": "uid_error",
-                "source_file": "sample.xlsx",
-                "source_sheet": "Statement",
-                "source_row_index": 3,
-                "bank": "ACB",
-                "flow": "bao_no",
-                "status": "loi",
-                "rpa_message": "PAD nhap loi",
-                "created_at": "2026-04-01T08:00:00",
-                "updated_at": "2026-04-01T08:01:00",
-            },
-        ],
-        columns=SUMMARY_COLUMNS,
-    )
-    write_summary(existing_summary, summary_path)
-
-    config = {
-        "output": {
-            "excel_file": "rpa_input.xlsx",
-            "tracking_file": "rpa_tracking.json",
-            "summary_file": "rpa_summary.xlsx",
-        }
-    }
-    result = write_outputs([_processed("uid_in_progress", 2), _processed("uid_error", 3)], tmp_path, config)
-
-    wb = load_workbook(result.excel_path, data_only=True)
-    headers = [cell.value for cell in wb["BAO_NO_INPUT"][1]]
-    assert headers == RPA_BUSINESS_COLUMNS
-    task_headers = [cell.value for cell in wb["RPA_TASKS"][1]]
-    rows = [dict(zip(task_headers, row)) for row in wb["RPA_TASKS"].iter_rows(min_row=2, values_only=True)]
-    statuses = {row["transaction_uid"]: row["summary_status"] for row in rows}
-    assert statuses == {
-        "uid_in_progress": STATUS_PENDING,
-        "uid_error": STATUS_PENDING,
-    }
-    assert result.stats["in_progress_count"] == 0
-    assert result.stats["error_count"] == 0
-    assert result.stats["bao_no_output_count"] == 2
-
-
-def test_write_outputs_promotes_legacy_success_attempts_to_done(tmp_path):
-    summary_path = tmp_path / "rpa_summary.xlsx"
-    existing_summary = pd.DataFrame(
-        [
-            {
-                "transaction_uid": "uid_success",
-                "source_file": "sample.xlsx",
-                "source_sheet": "Statement",
-                "source_row_index": 2,
-                "bank": "ACB",
-                "flow": "bao_no",
-                "status": STATUS_PENDING,
-                "last_attempt_result": "success",
-                "rpa_finished_at": "2026-04-01T08:01:00",
-                "created_at": "2026-04-01T08:00:00",
-                "updated_at": "2026-04-01T08:01:00",
-            }
-        ],
-        columns=SUMMARY_COLUMNS,
-    )
-    write_summary(existing_summary, summary_path)
-
-    config = {
-        "output": {
-            "excel_file": "rpa_input.xlsx",
-            "tracking_file": "rpa_tracking.json",
-            "summary_file": "rpa_summary.xlsx",
-        }
-    }
-    result = write_outputs([_processed("uid_success", 2)], tmp_path, config)
-
-    wb = load_workbook(result.excel_path, data_only=True)
-    assert wb["BAO_NO_INPUT"].max_row == 1
-    assert wb["RPA_TASKS"].max_row == 1
-
-    summary_df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    row = summary_df[summary_df["transaction_uid"] == "uid_success"].iloc[0]
-    assert row["status"] == STATUS_DONE
-    assert row["rpa_status"] == STATUS_DONE
-
-
-def test_rpa_status_helpers_mark_done_immediately_completed(tmp_path):
-    summary_path = tmp_path / "rpa_summary.xlsx"
-    row = {
-        column: ""
-        for column in SUMMARY_COLUMNS
-    }
-    row.update(
-        {
-            "transaction_uid": "uid_pending",
-            "source_file": "sample.xlsx",
-            "source_sheet": "Statement",
-            "source_row_index": 5,
-            "status": STATUS_PENDING,
-        }
-    )
-    write_summary(pd.DataFrame([row], columns=SUMMARY_COLUMNS), summary_path)
+    write_summary(pd.DataFrame([_new_summary_row("uid_pending")], columns=SUMMARY_COLUMNS), summary_path)
 
     mark_rpa_started(summary_path, "uid_pending", "run_1")
-    df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    df = df.where(pd.notna(df), "")
-    started_row = df[df["transaction_uid"] == "uid_pending"].iloc[0]
-    assert started_row["status"] == STATUS_PENDING
-    assert started_row["rpa_started_at"]
+    started = _read(summary_path).set_index("transaction_uid").loc["uid_pending"]
+    assert started[STATUS_COLUMN] == STATUS_PENDING
+    assert started["rpa_started_at"]
 
-    mark_rpa_done(summary_path, "uid_pending", "run_1", voucher_no="BN001")
-    df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    df = df.where(pd.notna(df), "")
-    done_row = df[df["transaction_uid"] == "uid_pending"].iloc[0]
-    assert done_row["status"] == STATUS_DONE
-    assert done_row["last_attempt_result"] == ""
-    assert done_row["voucher_no"] == "BN001"
-    assert done_row["rpa_finished_at"]
-    assert done_row["completed_at"]
-
-    finalize_rpa_run(summary_path, "run_1")
-    df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    df = df.where(pd.notna(df), "")
-    finalized_row = df[df["transaction_uid"] == "uid_pending"].iloc[0]
-    assert finalized_row["status"] == STATUS_DONE
-    assert finalized_row["voucher_no"] == "BN001"
-    assert finalized_row["completed_at"]
-    assert finalized_row["last_attempt_result"] == ""
-
-
-def test_summary_workbook_has_user_status_controls(tmp_path):
-    summary_path = tmp_path / "rpa_summary.xlsx"
-    row = {column: "" for column in SUMMARY_COLUMNS}
-    row.update({"transaction_uid": "uid_pending", "status": STATUS_PENDING, "rpa_status": STATUS_PENDING})
-    write_summary(pd.DataFrame([row], columns=SUMMARY_COLUMNS), summary_path)
-
-    wb = load_workbook(summary_path)
-    ws = wb[SUMMARY_SHEET_NAME]
-    headers = [cell.value for cell in ws[1]]
-    assert headers[:5] == ["transaction_uid", "rpa_status", "source_file", "voucher_no", "rpa_message"]
-    assert "STATUS_GUIDE" in wb.sheetnames
-    assert ws.freeze_panes == "A2"
-    validations = list(ws.data_validations.dataValidation)
-    assert any(validation.type == "list" and "chua_nhap,hoan_thanh" in validation.formula1 for validation in validations)
-
-
-def test_abort_run_resets_only_rows_touched_in_that_run(tmp_path):
-    summary_path = tmp_path / "rpa_summary.xlsx"
-    rows = []
-    for uid, status in (("uid_attempted", STATUS_PENDING), ("uid_untouched", STATUS_PENDING), ("uid_done_old", STATUS_DONE)):
-        row = {column: "" for column in SUMMARY_COLUMNS}
-        row.update(
-            {
-                "transaction_uid": uid,
-                "source_file": "sample.xlsx",
-                "source_sheet": "Statement",
-                "source_row_index": 5,
-                "status": status,
-                "rpa_status": status,
-                "voucher_no": "OLD" if uid == "uid_done_old" else "",
-                "completed_at": "2026-04-01T08:01:00" if uid == "uid_done_old" else "",
-            }
-        )
-        rows.append(row)
-    write_summary(pd.DataFrame(rows, columns=SUMMARY_COLUMNS), summary_path)
-
-    mark_rpa_started(summary_path, "uid_attempted", "run_abort")
-    from src.rpa_summary import mark_rpa_error
-
-    mark_rpa_error(summary_path, "uid_attempted", "run_abort", "VACOM row error")
-    mark_rpa_done(summary_path, "uid_done_old", "run_abort", voucher_no="OLD")
-    abort_rpa_run(summary_path, "run_abort", message="PAD abort")
-
-    df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    df = df.where(pd.notna(df), "")
-    statuses = dict(zip(df["transaction_uid"], df["status"]))
-    vouchers = dict(zip(df["transaction_uid"], df["voucher_no"]))
-    messages = dict(zip(df["transaction_uid"], df["rpa_message"]))
-
-    assert statuses["uid_attempted"] == STATUS_PENDING
-    assert vouchers["uid_attempted"] == ""
-    assert messages["uid_attempted"] == "PAD abort"
-    assert statuses["uid_untouched"] == STATUS_PENDING
-    assert statuses["uid_done_old"] == STATUS_DONE
-    assert vouchers["uid_done_old"] == "OLD"
-
-
-def test_reset_all_records_sets_everything_pending_and_clears_attempt_fields():
-    records = [
-        {
-            "transaction_uid": "uid_done",
-            "rpa_status": STATUS_DONE,
-            "status": STATUS_DONE,
-            "completed_at": "2026-04-01T08:01:00",
-            "voucher_no": "BN001",
-            "rpa_started_at": "2026-04-01T08:00:00",
-            "rpa_finished_at": "2026-04-01T08:01:00",
-            "last_attempt_result": "success",
-        },
-        {
-            "transaction_uid": "uid_pending",
-            "rpa_status": STATUS_PENDING,
-            "status": STATUS_PENDING,
-            "last_attempt_result": "error",
-        },
-    ]
-
-    reset = reset_all_records(records, message="Reset all")
-
-    assert [record["transaction_uid"] for record in reset] == ["uid_done", "uid_pending"]
-    for record in reset:
-        assert record["rpa_status"] == STATUS_PENDING
-        assert record["status"] == STATUS_PENDING
-        assert record["rpa_message"] == "Reset all"
-        assert record["completed_at"] == ""
-        assert record["voucher_no"] == ""
-        assert record["rpa_started_at"] == ""
-        assert record["rpa_finished_at"] == ""
-        assert record["last_attempt_result"] == ""
-        assert record["updated_at"]
-
-
-def test_reset_all_rpa_status_updates_summary_file(tmp_path):
-    summary_path = tmp_path / "rpa_summary.xlsx"
-    rows = []
-    for uid, status in (("uid_done", STATUS_DONE), ("uid_pending", STATUS_PENDING)):
-        row = {column: "" for column in SUMMARY_COLUMNS}
-        row.update(
-            {
-                "transaction_uid": uid,
-                "source_file": "sample.xlsx",
-                "source_sheet": "Statement",
-                "source_row_index": 5,
-                "status": status,
-                "rpa_status": status,
-                "voucher_no": "BN001" if status == STATUS_DONE else "",
-                "completed_at": "2026-04-01T08:01:00" if status == STATUS_DONE else "",
-                "last_attempt_result": "success" if status == STATUS_DONE else "error",
-            }
-        )
-        rows.append(row)
-    write_summary(pd.DataFrame(rows, columns=SUMMARY_COLUMNS), summary_path)
-
-    reset_all_rpa_status(summary_path, message="Reset all")
-
-    df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    df = df.where(pd.notna(df), "")
-    assert set(df["transaction_uid"]) == {"uid_done", "uid_pending"}
-    assert set(df["rpa_status"]) == {STATUS_PENDING}
-    assert set(df["status"]) == {STATUS_PENDING}
-    assert set(df["rpa_message"]) == {"Reset all"}
-    assert set(df["completed_at"]) == {""}
-    assert set(df["voucher_no"]) == {""}
-    assert set(df["last_attempt_result"]) == {""}
-
-
-def test_update_status_cli_updates_summary_only(tmp_path, monkeypatch):
-    summary_path = tmp_path / "rpa_summary.xlsx"
-    row = {column: "" for column in SUMMARY_COLUMNS}
-    row.update({"transaction_uid": "uid_pending", "status": STATUS_PENDING, "rpa_status": STATUS_PENDING})
-    write_summary(pd.DataFrame([row], columns=SUMMARY_COLUMNS), summary_path)
+    mark_rpa_done(summary_path, "uid_pending", "run_1", voucher_no="BN001", message="Đã nhập")
+    done = _read(summary_path).set_index("transaction_uid").loc["uid_pending"]
+    assert done[STATUS_COLUMN] == STATUS_DONE
+    assert done[VOUCHER_COLUMN] == "BN001"
+    assert done[MESSAGE_COLUMN] == "Đã nhập"
+    assert done[COMPLETED_COLUMN]
 
     monkeypatch.setattr(
         sys,
         "argv",
-        [
-            "update_rpa_status.py",
-            "--output-dir",
-            str(tmp_path),
-            "--uid",
-            "uid_pending",
-            "--status",
-            STATUS_DONE,
-            "--voucher-no",
-            "BN002",
-        ],
+        ["update_rpa_status.py", "--output-dir", str(tmp_path), "--uid", "uid_pending", "--status", STATUS_PENDING],
     )
-
     assert update_cli.main() == 0
-    assert not (tmp_path / "rpa_tracking.json").exists()
-    df = pd.read_excel(summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object)
-    df = df.where(pd.notna(df), "")
-    updated = df[df["transaction_uid"] == "uid_pending"].iloc[0]
-    assert updated["rpa_status"] == STATUS_DONE
-    assert updated["voucher_no"] == "BN002"
+    assert _read(summary_path).set_index("transaction_uid").at["uid_pending", STATUS_COLUMN] == STATUS_PENDING
+
+
+def test_abort_and_reset_preserve_expected_workflow(tmp_path):
+    summary_path = tmp_path / "rpa_summary.xlsx"
+    rows = [_new_summary_row("uid_attempted"), _new_summary_row("uid_untouched"), _new_summary_row("uid_done", STATUS_DONE)]
+    rows[2][VOUCHER_COLUMN] = "OLD"
+    rows[2][COMPLETED_COLUMN] = "2026-04-01T08:01:00"
+    write_summary(pd.DataFrame(rows, columns=SUMMARY_COLUMNS), summary_path)
+
+    mark_rpa_started(summary_path, "uid_attempted", "run_abort")
+    mark_rpa_error(summary_path, "uid_attempted", "run_abort", "VACOM row error")
+    abort_rpa_run(summary_path, "run_abort", message="PAD abort")
+    result = _read(summary_path).set_index("transaction_uid")
+    assert result.at["uid_attempted", STATUS_COLUMN] == STATUS_PENDING
+    assert result.at["uid_attempted", MESSAGE_COLUMN] == "PAD abort"
+    assert result.at["uid_untouched", MESSAGE_COLUMN] == ""
+    assert result.at["uid_done", STATUS_COLUMN] == STATUS_DONE
+    assert result.at["uid_done", VOUCHER_COLUMN] == "OLD"
+
+    reset_all_rpa_status(summary_path, message="Reset all")
+    reset = _read(summary_path)
+    assert set(reset[STATUS_COLUMN]) == {STATUS_PENDING}
+    assert set(reset[MESSAGE_COLUMN]) == {"Reset all"}
+    assert set(reset[VOUCHER_COLUMN]) == {""}
+
+
+def test_run_level_cli_commands_keep_their_existing_flags(tmp_path, monkeypatch):
+    summary_path = tmp_path / "rpa_summary.xlsx"
+    write_summary(pd.DataFrame([_new_summary_row("uid_run")], columns=SUMMARY_COLUMNS), summary_path)
+
+    mark_rpa_started(summary_path, "uid_run", "run_cli")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["update_rpa_status.py", "--output-dir", str(tmp_path), "--abort-run", "--run-id", "run_cli"],
+    )
+    assert update_cli.main() == 0
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["update_rpa_status.py", "--output-dir", str(tmp_path), "--finalize-run", "--run-id", "run_cli"],
+    )
+    assert update_cli.main() == 0
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["update_rpa_status.py", "--output-dir", str(tmp_path), "--reset-all", "--message", "Reset CLI"],
+    )
+    assert update_cli.main() == 0
+    row = _read(summary_path).set_index("transaction_uid").loc["uid_run"]
+    assert row[STATUS_COLUMN] == STATUS_PENDING
+    assert row[MESSAGE_COLUMN] == "Reset CLI"
+
+
+def test_summary_workbook_is_one_sheet_and_hides_technical_columns(tmp_path):
+    path = tmp_path / "rpa_summary.xlsx"
+    write_summary(pd.DataFrame([_new_summary_row("uid_pending")], columns=SUMMARY_COLUMNS), path)
+    workbook = load_workbook(path)
+    assert workbook.sheetnames == [SUMMARY_SHEET_NAME]
+    ws = workbook[SUMMARY_SHEET_NAME]
+    headers = [cell.value for cell in ws[1]]
+    assert headers == SUMMARY_COLUMNS
+    assert ws.freeze_panes == "A2"
+    header_map = {cell.value: cell.column_letter for cell in ws[1]}
+    for column in SUMMARY_TECHNICAL_COLUMNS:
+        assert ws.column_dimensions[header_map[column]].hidden
+    assert ws[1][headers.index(STATUS_COLUMN)].comment is not None
+    assert any("chua_nhap,hoan_thanh" in validation.formula1 for validation in ws.data_validations.dataValidation)
+
+
+def test_reset_all_records_low_level_contract_is_unchanged():
+    records = [
+        {"transaction_uid": "done", "rpa_status": STATUS_DONE, "voucher_no": "BN1", "completed_at": "x"},
+        {"transaction_uid": "pending", "rpa_status": STATUS_PENDING, "last_attempt_result": "error"},
+    ]
+    reset = reset_all_records(records, message="Reset all")
+    assert {record["rpa_status"] for record in reset} == {STATUS_PENDING}
+    assert {record["rpa_message"] for record in reset} == {"Reset all"}
+    assert {record["voucher_no"] for record in reset} == {""}

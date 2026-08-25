@@ -2,7 +2,7 @@
 
 Accounting Agent offline để xử lý sao kê ACB/MSB/VCB, phân loại báo nợ/báo có, nhận diện nghiệp vụ kế toán, suy luận mã đối tượng và sinh file trung gian cho RPA nhập VACOM.
 
-Phiên bản hiện tại dùng kiến trúc mức 2: rule + entity extraction + alias/fuzzy matching + ML offline fallback + accounting verifier. Không dùng LLM/API cloud.
+Phiên bản hiện tại dùng kiến trúc rule-first: rule + entity extraction + alias/fuzzy matching + historical memory + accounting verifier. Không dùng ML, LLM hoặc API cloud.
 
 ## 1. Chạy Bằng Venv
 
@@ -22,36 +22,53 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 ```
 
-## 2. Output Cho RPA
+## 2. Output vận hành
 
-backendFile chạy tạm cho RPA: `output/rpa_input.xlsx`
-
-- `BAO_NO_INPUT`: chỉ dòng báo nợ OK để RPA nhập luồng báo nợ ngân hàng.
-- `BAO_CO_INPUT`: chỉ dòng báo có OK để RPA nhập luồng báo có ngân hàng.
-- `EXCEPTION`: dòng lỗi, chưa chắc chắn, thiếu mã đối tượng, bảo hiểm, hoặc bị verifier chặn.
-- `SUMMARY`: thống kê số dòng và tổng tiền.
-- `RPA_TASKS`: mapping giữa dòng input và dòng trạng thái bền vững.
-- Cột `Lí do` trong các sheet input có thể xuất TCVN3 cho VACOM bằng `output.rpa_reason_encoding: "tcvn3"`; khi bật chế độ này, file có thêm cột `Lí do Unicode` ngay bên cạnh để đọc/đối chiếu. Dữ liệu config/audit/summary vẫn giữ Unicode.
-
-Các sheet input có các cột nghiệp vụ sau. Cột `Tỷ giá` để trống với giao dịch thường và có giá trị với giao dịch ngoại tệ:
+Mỗi lần chạy chỉ tạo hoặc cập nhật ba workbook:
 
 ```text
-BAO_NO/BAO_CO/CHI_TIEN_MAT:
-Ngày CT | Mã ĐT | Lí do | Người nhận tiền | TK nợ | TK có | Thành tiền | Tỷ giá | Ngân hàng
-
-THU_TIEN_MAT:
-Ngày CT | Mã ĐT | Lí do | Người nộp tiền | TK nợ | TK có | Thành tiền | Tỷ giá | Ngân hàng
+output/
+├── rpa_input.xlsx
+├── rpa_summary.xlsx
+└── object_match_review.xlsx
 ```
 
-File legacy tracking: `output/rpa_tracking.json`
+Log vẫn hiển thị trên PowerShell nhưng không còn ghi `agent_run.log`. Các file `agent_run.log` và `rpa_tracking.json` còn lại từ phiên bản cũ chỉ là dữ liệu legacy; chương trình không tự xóa chúng.
 
-- File JSON này không còn được tạo/cập nhật trong luồng vận hành thường ngày.
-- Nếu còn tồn tại từ bản cũ thì chỉ xem như dữ liệu lịch sử/debug; trạng thái RPA hiện lấy từ `output/rpa_summary.xlsx`.
+### `rpa_input.xlsx`
 
-File review mã đối tượng: `output/object_match_review.xlsx`
+Workbook có đúng năm sheet theo thứ tự:
 
-- `OBJECT_ERRORS`: các dòng còn lỗi `Mã ĐT`, top candidates và nhóm nguyên nhân.
-- `SUMMARY`: thống kê theo nhóm lỗi, ngân hàng, use case và hint.
+- `BAO_NO_INPUT`: giao dịch báo nợ đủ điều kiện nhập.
+- `BAO_CO_INPUT`: giao dịch báo có đủ điều kiện nhập.
+- `THU_TIEN_MAT_INPUT`: phiếu thu tiền mặt, dùng cột `Người nộp tiền`.
+- `CHI_TIEN_MAT_INPUT`: phiếu chi tiền mặt, dùng cột `Người nhận tiền`.
+- `EXCEPTION`: các dòng cần người dùng kiểm tra hoặc bổ sung.
+
+Bốn sheet input giữ nguyên tiêu đề PAD. Năm cột kỹ thuật `transaction_uid`, `run_id`, `Trạng thái RPA`, `Thông báo RPA`, `Thời gian nhập RPA` nằm cuối bảng và được ẩn. Cột `Lí do` dùng TCVN3 cho VACOM khi cấu hình `output.rpa_reason_encoding: "tcvn3"`; cột `Lí do Unicode` dùng để đọc và đối chiếu.
+
+Tại `EXCEPTION`, người dùng bổ sung các ô màu vàng, chọn một trong bốn giá trị tại `Luồng nhập RPA`, sau đó nhập `yes` tại `Duyệt nhập RPA`. Chạy lệnh sau để kiểm tra và chuyển dòng hợp lệ vào đúng sheet input:
+
+```powershell
+.\.venv\Scripts\python.exe promote_reviewed_exceptions.py --input-file ".\output\rpa_input.xlsx"
+```
+
+Nếu thiếu dữ liệu, cột `Trạng thái xử lý` và `Vấn đề cần xử lý` cho biết chính xác trường cần bổ sung. Dòng đã chuyển được kiểm tra trùng bằng `transaction_uid`.
+
+### `rpa_summary.xlsx`
+
+Workbook chỉ có sheet `RPA_SUMMARY` và tích lũy lịch sử qua nhiều lần chạy. Người dùng/PAD cập nhật ba cột màu vàng: `Trạng thái RPA`, `Số chứng từ VACOM`, `Thông báo RPA`. Trạng thái chỉ dùng `chua_nhap` hoặc `hoan_thanh`; dòng `hoan_thanh` không quay lại `rpa_input.xlsx`.
+
+Các cột kỹ thuật phục vụ cập nhật/finalize/abort được giữ ở cuối và ẩn. Khi đọc file summary schema cũ, chương trình tự chuyển đổi và tạo một bản sao tại `output/backup/rpa_summary_before_simplify_<timestamp>.xlsx` trước khi thay file.
+
+### `object_match_review.xlsx`
+
+Đây là file dành cho người quản trị danh mục/alias, chỉ phản ánh vấn đề của lần chạy hiện tại:
+
+- `LOI_MA_DOI_TUONG`: một dòng cho mỗi giao dịch thực sự lỗi mã đối tượng, kèm tối đa hai gợi ý.
+- `DE_XUAT_CAP_NHAT`: nhóm các lỗi và va chạm hiện tại thành danh sách hành động quản trị.
+
+Hai sheet giữ `Trạng thái xử lý` và `Ghi chú` qua lần chạy sau bằng UID/action key. Nếu không có lỗi, workbook vẫn được tạo với hai sheet chỉ có header.
 
 Khi người dùng mở `output/rpa_input.xlsx` để bỏ bớt dòng trước khi PAD nhập:
 
@@ -64,18 +81,7 @@ Khi người dùng mở `output/rpa_input.xlsx` để bỏ bớt dòng trước 
 
 - Trong PAD, chèn command trên ngay sau bước `PROMOTE_REVIEWED_EXCEPTIONS` thành công và trước bước `ARCHIVE_RPA_INPUT`/đọc các sheet `*_INPUT`. Với nhánh chạy file input cũ, chèn sau `PROMOTE_REVIEWED_EXCEPTIONS_OLD_FILE`.
 
-File trạng thái bền vững: `output/rpa_summary.xlsx`
-
-- Sheet `RPA_SUMMARY` lưu từng giao dịch theo `transaction_uid`, file/sheet/dòng gốc và trạng thái RPA.
-- Người dùng quản lý trực tiếp 3 cột: `rpa_status`, `voucher_no`, `rpa_message`.
-- Cột `rpa_status` có dropdown, chỉ dùng `chua_nhap` hoặc `hoan_thanh`.
-- Trạng thái `hoàn thành` sẽ không được đưa lại vào `rpa_input.xlsx` ở các lần chạy sau.
-- Chỉ có 2 trạng thái bền vững: `chưa nhập` và `hoàn thành`.
-- Các trạng thái cũ như `lỗi`, `đang nhập`, `cần kiểm tra`, `bỏ qua` sẽ được chuẩn hóa về `chưa nhập`.
-- Khi PAD gọi cập nhật `hoàn thành` cho một dòng, dòng đó được ghi trạng thái `hoàn thành` ngay và sẽ không được đưa lại vào `rpa_input.xlsx` ở lần chạy sau.
-- `finalize-run` vẫn có thể gọi ở cuối flow để tương thích và xử lý dữ liệu cũ, nhưng không còn là điều kiện bắt buộc để khóa dòng đã nhập.
-- Nếu PAD abort giữa chừng, abort run chỉ reset các dòng lỗi/tạm trong run đó; các dòng đã `hoàn thành` không bị đụng.
-- Trước khi agent/PAD cập nhật trạng thái, hãy đóng `rpa_summary.xlsx`; nếu file đang mở, script sẽ báo cần đóng Excel rồi chạy lại.
+Trước khi agent/PAD cập nhật trạng thái, hãy đóng các workbook output. Mọi workbook được ghi qua file tạm rồi mới thay thế; nếu Excel đang khóa file hoặc quá trình ghi lỗi, file đích cũ vẫn được giữ nguyên.
 
 ## 3. Config Quan Trọng
 
@@ -83,59 +89,15 @@ File trạng thái bền vững: `output/rpa_summary.xlsx`
 - `config/object_aliases.yaml`: alias thực tế trên sao kê, ví dụ `KBB`, `PETROLIMEX`, `VINH LONG`, `VSICO`.
 - `config/reason_aliases.yaml`: alias loại thanh toán để sinh `Lí do` chi tiết, ví dụ `cước vận chuyển`, `phí cảng vụ`, `tiền thuê văn phòng`.
 - `config/default_rules.yaml`: rule nghiệp vụ kế toán.
-- `config/ml.yaml`: đường dẫn model ML offline.
-
 Khi gặp mã ĐT hay sai, ưu tiên bổ sung alias vào `object_aliases.yaml` trước. Đây là cách ổn định và dễ kiểm toán nhất.
 
-## 4. Feedback Và Train ML Offline
-
-Template feedback:
-
-```text
-data/training/reviewed_transactions.xlsx
-```
-
-Kế toán có thể điền các cột:
-
-- `correct_use_case`
-- `correct_account`
-- `correct_object_code`
-- `correct_object_name`
-- `review_status`
-
-Build dữ liệu training từ summary Excel:
-
-```powershell
-python -m src.ml.build_training_data --summary output\rpa_summary.xlsx
-```
-
-Nếu cần khai thác file JSON cũ:
-
-```powershell
-python -m src.ml.build_training_data --tracking output\rpa_tracking.json
-```
-
-Train model phân loại giao dịch:
-
-```powershell
-python -m src.ml.train_models --feedback data\training\reviewed_transactions.xlsx
-```
-
-Model sẽ lưu vào:
-
-```text
-models/transaction_classifier.joblib
-```
-
-Nếu chưa có model, chương trình vẫn chạy bình thường bằng rule + entity + alias + fuzzy.
-
-## 5. Chạy Test
+## 4. Chạy Test
 
 ```powershell
 python -m pytest --basetemp .pytest_tmp
 ```
 
-## 6. File Input
+## 5. File Input
 
 - Sao kê ACB/MSB/VCB: `input/statements/`
 - Danh mục phải thu: `input/DS mã đối tượng phải thu.xlsx`
@@ -144,9 +106,9 @@ python -m pytest --basetemp .pytest_tmp
 
 Chương trình hiện dùng rule YAML trực tiếp, không đọc file quy luật Excel khi chạy.
 
-## 7. Nguyên Tắc An Toàn
+## 6. Nguyên Tắc An Toàn
 
 - Không chắc thì đưa vào `EXCEPTION`.
 - Bảo hiểm luôn không xử lý tự động.
 - Mã ĐT công ty mình bị chặn tuyệt đối.
-- ML không ghi thẳng vào RPA output; mọi dòng phải qua accounting verifier.
+- Mọi dòng phải qua accounting verifier trước khi vào RPA output.

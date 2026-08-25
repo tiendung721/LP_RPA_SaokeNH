@@ -5,7 +5,6 @@ from openpyxl import load_workbook
 
 from src.config_loader import load_config, load_rules
 from src.historical_memory import HistoricalMemoryMatch
-from src.ml.object_ranker import ObjectRanker
 from src.models import ExtractedEntities, ObjectCandidate, ProcessedTransaction, Rule, Transaction
 from src.object_matcher import ObjectMatcher
 from src.output_writer import RPA_BUSINESS_COLUMNS, RPA_COLUMNS, write_excel, write_object_match_review
@@ -42,44 +41,6 @@ def test_both_debit_credit_goes_exception():
     result = process_transaction(txn, _config(), _engine(), ObjectMatcher([]), ObjectMatcher([]))
     assert result.status == "ERROR"
     assert "Dòng có cả ghi nợ và ghi có" in result.error_note
-
-
-class _FakeObjectModel:
-    classes_ = [0, 1]
-
-    def predict_proba(self, texts):
-        return [[0.05, 0.95] if "RIGHT" in text else [0.9, 0.1] for text in texts]
-
-
-def test_process_transaction_uses_object_ranker_for_ambiguous_candidates():
-    txn = Transaction(
-        source_file="sample.xlsx",
-        bank="ACB",
-        transaction_date=date(2026, 4, 1),
-        doc_no="1",
-        description="LE PHAM TT CHO TARGET",
-        counterparty_raw="",
-        debit_amount=1000,
-        credit_amount=0,
-        original_row_index=2,
-    )
-    payable = ObjectMatcher.from_records(
-        [
-            {"code": "WRONG", "name": "Công ty WRONG TARGET"},
-            {"code": "RIGHT", "name": "Công ty RIGHT TARGET"},
-        ],
-        min_score=80,
-        min_gap=8,
-    )
-    ranker = ObjectRanker(enabled=False, min_confidence=0.85, min_gap=0.15)
-    ranker.model = _FakeObjectModel()
-
-    result = process_transaction(txn, _config(), _engine(), ObjectMatcher([]), payable, object_ranker=ranker)
-
-    assert result.status == "OK"
-    assert result.object_code == "RIGHT"
-    assert result.object_match_source == "ml_object_ranker"
-    assert result.object_ml_result.status == "OK"
 
 
 def test_process_transaction_uses_strong_cross_catalog_fallback():
@@ -572,6 +533,7 @@ def test_write_object_match_review_for_object_errors(tmp_path):
         status="ERROR",
         error_note="Không tìm thấy mã đối tượng",
         confidence=0.79,
+        transaction_uid="uid_xm_song_lam",
         matched_candidates=[
             ObjectCandidate(code="XMSONGLAM", name="Công ty cổ phần xi măng Sông Lam", score=79.5, source="fuzzy_name", matched_on="XI MANG SONG LAM")
         ],
@@ -596,6 +558,7 @@ def test_write_object_match_review_for_object_errors(tmp_path):
         status="ERROR",
         error_note="Nhiều mã đối tượng khớp gần bằng nhau",
         confidence=0.9,
+        transaction_uid="uid_quang_minh",
         matched_candidates=[
             ObjectCandidate(code="QUANGMINH", name="Công ty Quang Minh", score=100, source="entity_match", matched_on="QUANG MINH"),
             ObjectCandidate(code="DLOC", name="Công ty Quang Minh Đại Lộc", score=100, source="entity_match", matched_on="QUANG MINH DAI LOC"),
@@ -603,35 +566,41 @@ def test_write_object_match_review_for_object_errors(tmp_path):
         entities=ExtractedEntities(counterparty_hint="QUANG MINH"),
     )
     output_file = tmp_path / "object_match_review.xlsx"
-    write_object_match_review(
-        [err, ambiguous],
-        output_file,
-        alias_audit_rows=[
-            {
-                "catalog": "payable",
-                "code": "VINACONTROL HP",
-                "alias": "VINACONTROL",
-                "risk": "unsafe_collision",
-                "collision_count": 2,
-                "hit_codes": "VINACONTROL HP, VINACONTROL QN",
-                "hit_names": "Vinacontrol Hai Phong | Vinacontrol Quang Ninh",
-            }
-        ],
-    )
+    write_object_match_review([err, ambiguous], output_file)
     wb = load_workbook(output_file)
-    assert "OBJECT_ERRORS" in wb.sheetnames
-    assert "HINT_COLLISIONS" in wb.sheetnames
-    assert "ALIAS_RISK" in wb.sheetnames
-    assert "OBJECT_ACTIONS" in wb.sheetnames
-    headers = [cell.value for cell in wb["OBJECT_ERRORS"][1]]
-    values = dict(zip(headers, [cell.value for cell in wb["OBJECT_ERRORS"][2]]))
-    assert values["reason_class"] == "missing_alias_or_low_score"
-    assert values["best_candidate_code"] == "XMSONGLAM"
-    action_headers = [cell.value for cell in wb["OBJECT_ACTIONS"][1]]
-    action_types = [
-        dict(zip(action_headers, [cell.value for cell in row]))["action_type"]
-        for row in wb["OBJECT_ACTIONS"].iter_rows(min_row=2)
-    ]
-    assert "remove_or_narrow_alias" in action_types
-    assert "review_ambiguous_hint" in action_types
-    assert "review_alias_candidate" in action_types
+    assert wb.sheetnames == ["LOI_MA_DOI_TUONG", "DE_XUAT_CAP_NHAT"]
+    error_ws = wb["LOI_MA_DOI_TUONG"]
+    headers = [cell.value for cell in error_ws[1]]
+    values = dict(zip(headers, [cell.value for cell in error_ws[2]]))
+    assert values["Nguyên nhân lỗi"] == "Thiếu alias hoặc điểm nhận diện thấp"
+    assert values["Mã gợi ý 1"] == "XMSONGLAM"
+    assert values["Trạng thái xử lý"] == "Chưa xử lý"
+    assert error_ws.column_dimensions[error_ws.cell(1, headers.index("transaction_uid") + 1).column_letter].hidden
+
+    action_ws = wb["DE_XUAT_CAP_NHAT"]
+    action_headers = [cell.value for cell in action_ws[1]]
+    action_types = {
+        dict(zip(action_headers, [cell.value for cell in row]))["Loại cập nhật"]
+        for row in action_ws.iter_rows(min_row=2)
+    }
+    assert "Kiểm tra tên nhận diện bị trùng" in action_types
+    assert "Kiểm tra và bổ sung alias" in action_types
+
+    error_ws.cell(row=2, column=headers.index("Trạng thái xử lý") + 1, value="Đã xử lý")
+    error_ws.cell(row=2, column=headers.index("Ghi chú") + 1, value="Đã bổ sung alias")
+    wb.save(output_file)
+    write_object_match_review([err], output_file)
+    wb = load_workbook(output_file, data_only=True)
+    headers = [cell.value for cell in wb["LOI_MA_DOI_TUONG"][1]]
+    values = dict(zip(headers, [cell.value for cell in wb["LOI_MA_DOI_TUONG"][2]]))
+    assert values["Trạng thái xử lý"] == "Đã xử lý"
+    assert values["Ghi chú"] == "Đã bổ sung alias"
+
+
+def test_write_object_match_review_without_errors_has_two_empty_sheets(tmp_path):
+    output_file = tmp_path / "object_match_review.xlsx"
+    write_object_match_review([], output_file)
+    workbook = load_workbook(output_file)
+    assert workbook.sheetnames == ["LOI_MA_DOI_TUONG", "DE_XUAT_CAP_NHAT"]
+    assert workbook["LOI_MA_DOI_TUONG"].max_row == 1
+    assert workbook["DE_XUAT_CAP_NHAT"].max_row == 1

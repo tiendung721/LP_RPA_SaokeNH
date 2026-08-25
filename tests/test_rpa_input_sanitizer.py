@@ -36,7 +36,7 @@ def _processed(uid: str, amount: int) -> ProcessedTransaction:
     )
 
 
-def test_sanitize_rpa_input_deletes_blank_rows_and_updates_tasks(tmp_path):
+def test_sanitize_rpa_input_deletes_blank_rows_without_legacy_tasks_sheet(tmp_path):
     input_file = tmp_path / "rpa_input.xlsx"
     write_excel([_processed("uid_skip", 100), _processed("uid_keep", 200)], input_file, run_id="run1")
 
@@ -50,7 +50,8 @@ def test_sanitize_rpa_input_deletes_blank_rows_and_updates_tasks(tmp_path):
 
     assert summary.saved is True
     assert summary.removed_rows == [{"sheet": "BAO_NO_INPUT", "row": 2, "reason": "blank"}]
-    assert len(summary.removed_tasks) == 1
+    assert summary.removed_tasks == []
+    assert summary.updated_tasks == 0
 
     workbook = load_workbook(input_file, data_only=True)
     ws = workbook["BAO_NO_INPUT"]
@@ -59,14 +60,7 @@ def test_sanitize_rpa_input_deletes_blank_rows_and_updates_tasks(tmp_path):
     assert ws.max_row == 2
     assert ws.cell(row=2, column=uid_column).value == "uid_keep"
 
-    tasks_ws = workbook["RPA_TASKS"]
-    task_headers = [cell.value for cell in tasks_ws[1]]
-    task_row = dict(zip(task_headers, [cell.value for cell in tasks_ws[2]]))
-    assert tasks_ws.max_row == 2
-    assert task_row["transaction_uid"] == "uid_keep"
-    assert task_row["input_excel_row"] == 2
-    assert task_row["task_id"] == "run1:BAO_NO_INPUT:2"
-    assert task_row["sheet_row_count"] == 1
+    assert "RPA_TASKS" not in workbook.sheetnames
 
 
 def test_sanitize_rpa_input_removes_rows_missing_transaction_uid(tmp_path):
@@ -83,8 +77,9 @@ def test_sanitize_rpa_input_removes_rows_missing_transaction_uid(tmp_path):
     summary = sanitize_rpa_input(input_file)
 
     assert summary.removed_rows == [{"sheet": "BAO_NO_INPUT", "row": 2, "reason": "missing_transaction_uid"}]
-    assert len(summary.removed_tasks) == 1
+    assert summary.removed_tasks == []
+    assert summary.updated_tasks == 0
 
     workbook = load_workbook(input_file, data_only=True)
     assert workbook["BAO_NO_INPUT"].max_row == 1
-    assert workbook["RPA_TASKS"].max_row == 1
+    assert "RPA_TASKS" not in workbook.sheetnames

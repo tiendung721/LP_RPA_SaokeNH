@@ -13,15 +13,13 @@ from .normalizer import parse_amount
 DEFAULT_CONFIG: dict[str, Any] = {
     "bank_accounts": {"VCB": "1121VCB", "ACB": "1121CT", "MSB": "1121HB"},
     "bank_object_codes": {"VCB": "VCB", "ACB": "ACB", "MSB": "MSBHB"},
-    "foreign_currency_accounts": {"VCB": "1122VCB", "ACB": "1122CT", "MSB": "1122HB"},
+    "foreign_currency_accounts": {"VCB": "1122VCB", "ACB": "1122ACB", "MSB": "1122HB"},
     "matching": {"min_score": 80, "min_gap": 8},
     "output": {
         "date_format": "%d/%m/%Y",
         "excel_file": "rpa_input.xlsx",
-        "tracking_file": "rpa_tracking.json",
         "summary_file": "rpa_summary.xlsx",
         "object_match_review_file": "object_match_review.xlsx",
-        "log_file": "agent_run.log",
         "rpa_reason_encoding": "",
     },
     "rules": {"default_rules_file": "config/default_rules.yaml"},
@@ -36,16 +34,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_unique_similarity": 35,
         "min_ambiguous_similarity": 70,
         "min_ambiguous_gap": 8,
-    },
-    "ml": {
-        "enabled": False,
-        "object_ranker_enabled": True,
-        "transaction_classifier_model": "models/transaction_classifier.joblib",
-        "object_ranker_model": "models/object_ranker.joblib",
-        "min_classification_confidence": 0.75,
-        "min_object_confidence": 0.85,
-        "min_object_gap": 0.15,
-        "object_ranker_min_training_rows": 50,
     },
 }
 
