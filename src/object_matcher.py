@@ -391,9 +391,12 @@ def load_catalog(path: str | Path) -> list[CatalogObject]:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
-    excel = pd.ExcelFile(path)
-    sheet_name = "r_dmdt" if "r_dmdt" in excel.sheet_names else excel.sheet_names[0]
-    raw = pd.read_excel(path, sheet_name=sheet_name, header=None, dtype=object)
+    # Close the ExcelFile explicitly. Leaving its ZIP handle to garbage
+    # collection prevents Rule Manager from atomically replacing the catalog
+    # on Windows after a read.
+    with pd.ExcelFile(path) as excel:
+        sheet_name = "r_dmdt" if "r_dmdt" in excel.sheet_names else excel.sheet_names[0]
+        raw = pd.read_excel(excel, sheet_name=sheet_name, header=None, dtype=object)
     data_start, columns = _detect_catalog_columns(raw)
 
     objects: list[CatalogObject] = []

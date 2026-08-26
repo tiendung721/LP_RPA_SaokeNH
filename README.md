@@ -97,7 +97,34 @@ Khi gặp mã ĐT hay sai, ưu tiên bổ sung alias vào `object_aliases.yaml` 
 python -m pytest --basetemp .pytest_tmp
 ```
 
-## 5. File Input
+## 5. Rule Manager - Quản Lý Mã Đối Tượng
+
+Rule Manager là cửa sổ desktop độc lập với PAD. Phiên bản hiện tại quản lý danh mục Mã ĐT và alias; khung điều hướng đã chừa sẵn module Loại thanh toán và Nghiệp vụ kế toán cho giai đoạn sau.
+
+Khởi động bằng PowerShell:
+
+```powershell
+.\scripts\run_rule_manager.ps1
+```
+
+Hoặc chạy trực tiếp:
+
+```powershell
+.\.venv\Scripts\python.exe rule_manager.py
+```
+
+Luồng sử dụng:
+
+1. Chọn danh mục Phải thu, Phải trả hoặc Nội bộ.
+2. Chọn Mã ĐT đang có để bổ sung alias, hoặc bấm `Thêm Mã ĐT`.
+3. Alias user mặc định dùng kiểu `Cụm từ chính xác`; chỉ chọn `Alias linh hoạt` với tên đủ đặc trưng.
+4. Bấm `Kiểm tra`, sau đó `Áp dụng`.
+
+Khi áp dụng, chương trình lưu dữ liệu user tại `data/rule_manager/object_rules.user.json`, backup các file bị tác động vào `backup/rule_manager/<timestamp>/`, cập nhật workbook danh mục nếu có Mã ĐT mới, rồi hợp nhất và thay thế an toàn `config/object_aliases.yaml` cùng `config/object_overrides.yaml`. Nếu một bước thất bại, transaction tự khôi phục các file cũ.
+
+Mã ĐT mới phải có Mã ĐT, Tên ĐT, đúng danh mục và được xác nhận đã tạo trong VACOM. Hãy đóng workbook danh mục trong Excel trước khi áp dụng.
+
+## 6. File Input
 
 - Sao kê ACB/MSB/VCB: `input/statements/`
 - Danh mục phải thu: `input/DS mã đối tượng phải thu.xlsx`
@@ -106,7 +133,7 @@ python -m pytest --basetemp .pytest_tmp
 
 Chương trình hiện dùng rule YAML trực tiếp, không đọc file quy luật Excel khi chạy.
 
-## 6. Nguyên Tắc An Toàn
+## 7. Nguyên Tắc An Toàn
 
 - Không chắc thì đưa vào `EXCEPTION`.
 - Bảo hiểm luôn không xử lý tự động.

@@ -11,3 +11,5 @@ output/
 node_modules/
 dist/
 build/
+.pytest_*/
+/backup/rule_manager/
