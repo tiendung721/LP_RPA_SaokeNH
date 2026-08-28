@@ -14,8 +14,12 @@ class RuleManagerPaths:
     data_dir: Path
     backup_dir: Path
     user_rules_path: Path
+    payment_rules_path: Path
+    accounting_rules_path: Path
     object_aliases_path: Path
     object_overrides_path: Path
+    reason_aliases_path: Path
+    default_rules_path: Path
     own_company_path: Path
 
     @classmethod
@@ -28,12 +32,15 @@ class RuleManagerPaths:
             data_dir=root / "data" / "rule_manager",
             backup_dir=root / "backup" / "rule_manager",
             user_rules_path=root / "data" / "rule_manager" / "object_rules.user.json",
+            payment_rules_path=root / "data" / "rule_manager" / "payment_rules.user.json",
+            accounting_rules_path=root / "data" / "rule_manager" / "accounting_rules.user.json",
             object_aliases_path=root / "config" / "object_aliases.yaml",
             object_overrides_path=root / "config" / "object_overrides.yaml",
+            reason_aliases_path=root / "config" / "reason_aliases.yaml",
+            default_rules_path=root / "config" / "default_rules.yaml",
             own_company_path=root / "config" / "own_company.yaml",
         )
 
     def catalog_path(self, catalog: str) -> Path:
         definition = CATALOG_DEFINITIONS[catalog]
         return self.input_dir / definition.filename
-

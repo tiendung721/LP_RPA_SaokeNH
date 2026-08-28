@@ -12,7 +12,7 @@ from src.normalizer import normalize_text
 from .models import ManagedAlias, StoredObject
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class UserRuleRepository:
@@ -59,6 +59,8 @@ class UserRuleRepository:
                     address=record.address,
                     confirmed_in_vacom=record.confirmed_in_vacom,
                     active=record.active,
+                    deleted=record.deleted,
+                    created_by_user=record.created_by_user,
                     created_at=current.created_at or now,
                     updated_at=now,
                 )
@@ -79,22 +81,27 @@ class UserRuleRepository:
     def upsert_alias(self, record: ManagedAlias) -> None:
         data = self.load()
         records = [ManagedAlias.from_dict(item) for item in data["aliases"] if isinstance(item, dict)]
-        key = self._alias_key(record.catalog, record.alias)
+        key = record.record_id
         now = self._now()
         updated: list[ManagedAlias] = []
         found = False
         for current in records:
-            if self._alias_key(current.catalog, current.alias) != key:
+            if current.record_id != key:
                 updated.append(current)
                 continue
             found = True
             updated.append(
                 ManagedAlias(
+                    record_id=record.record_id,
                     catalog=record.catalog,
                     object_code=record.object_code,
                     alias=record.alias,
                     match_type=record.match_type,
                     active=record.active,
+                    deleted=record.deleted,
+                    source=record.source,
+                    original_alias=record.original_alias,
+                    previous_aliases=record.previous_aliases,
                     created_at=current.created_at or now,
                     updated_at=now,
                 )
@@ -111,6 +118,35 @@ class UserRuleRepository:
             )
         data["aliases"] = [item.to_dict() for item in updated]
         self.save(data)
+
+    def remove_object(self, catalog: str, code: str) -> tuple[int, int]:
+        """Remove a UI-created object and every managed alias that targets it."""
+        data = self.load()
+        object_key = self._object_key(catalog, code)
+        objects = [
+            StoredObject.from_dict(item)
+            for item in data["objects"]
+            if isinstance(item, dict)
+        ]
+        aliases = [
+            ManagedAlias.from_dict(item)
+            for item in data["aliases"]
+            if isinstance(item, dict)
+        ]
+        kept_objects = [
+            item
+            for item in objects
+            if self._object_key(item.catalog, item.code) != object_key
+        ]
+        kept_aliases = [
+            item
+            for item in aliases
+            if self._object_key(item.catalog, item.object_code) != object_key
+        ]
+        data["objects"] = [item.to_dict() for item in kept_objects]
+        data["aliases"] = [item.to_dict() for item in kept_aliases]
+        self.save(data)
+        return len(objects) - len(kept_objects), len(aliases) - len(kept_aliases)
 
     def save(self, data: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,10 +171,6 @@ class UserRuleRepository:
     @staticmethod
     def _object_key(catalog: str, code: str) -> tuple[str, str]:
         return catalog.strip(), normalize_text(code)
-
-    @staticmethod
-    def _alias_key(catalog: str, alias: str) -> tuple[str, str]:
-        return catalog.strip(), normalize_text(alias)
 
     @staticmethod
     def _now() -> str:

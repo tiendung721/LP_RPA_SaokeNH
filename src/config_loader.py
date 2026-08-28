@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -76,7 +77,21 @@ def load_rules(
 def _load_rules_from_yaml(path: Path) -> list[Rule]:
     with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
-    return [_rule_from_dict(item) for item in data.get("rules", [])]
+    disabled = {str(rule_id or "").strip() for rule_id in data.get("disabled_rule_ids", []) or []}
+    return [
+        _rule_from_dict(item)
+        for index, item in enumerate(data.get("rules", []))
+        if rule_config_id(item, index) not in disabled
+    ]
+
+
+def rule_config_id(item: dict[str, Any], index: int) -> str:
+    configured = str(item.get("rule_id", "") or "").strip()
+    if configured:
+        return configured
+    payload = f"{index}|{item.get('flow', '')}|{item.get('use_case', '')}|{item.get('account', '')}"
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:20]
+    return f"builtin:{digest}"
 
 
 def _rule_from_dict(item: dict[str, Any]) -> Rule:

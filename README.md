@@ -97,9 +97,9 @@ Khi gặp mã ĐT hay sai, ưu tiên bổ sung alias vào `object_aliases.yaml` 
 python -m pytest --basetemp .pytest_tmp
 ```
 
-## 5. Rule Manager - Quản Lý Mã Đối Tượng
+## 5. Quản lý dữ liệu sao kê
 
-Rule Manager là cửa sổ desktop độc lập với PAD. Phiên bản hiện tại quản lý danh mục Mã ĐT và alias; khung điều hướng đã chừa sẵn module Loại thanh toán và Nghiệp vụ kế toán cho giai đoạn sau.
+`Quản lý dữ liệu sao kê` là cửa sổ desktop quản lý ba nhóm dữ liệu: Mã đối tượng, Loại thanh toán và Nghiệp vụ kế toán.
 
 Khởi động bằng PowerShell:
 
@@ -117,12 +117,35 @@ Luồng sử dụng:
 
 1. Chọn danh mục Phải thu, Phải trả hoặc Nội bộ.
 2. Chọn Mã ĐT đang có để bổ sung alias, hoặc bấm `Thêm Mã ĐT`.
-3. Alias user mặc định dùng kiểu `Cụm từ chính xác`; chỉ chọn `Alias linh hoạt` với tên đủ đặc trưng.
-4. Bấm `Kiểm tra`, sau đó `Áp dụng`.
+3. Nhập alias; chương trình tự phân loại thành `Cụm từ chính xác` hoặc `Alias linh hoạt` khi áp dụng.
+4. Click trực tiếp vào ô Alias để chỉnh sửa. Click chuột phải vào dòng để tạm ngưng, kích hoạt lại hoặc xóa.
+5. Có thể tạm ngưng/kích hoạt mọi Mã ĐT. Chỉ Mã ĐT được thêm từ màn hình này mới có thể xóa.
+6. Bấm `Áp dụng`; chương trình kiểm tra và thông báo rõ lỗi nếu dữ liệu chưa hợp lệ.
 
-Khi áp dụng, chương trình lưu dữ liệu user tại `data/rule_manager/object_rules.user.json`, backup các file bị tác động vào `backup/rule_manager/<timestamp>/`, cập nhật workbook danh mục nếu có Mã ĐT mới, rồi hợp nhất và thay thế an toàn `config/object_aliases.yaml` cùng `config/object_overrides.yaml`. Nếu một bước thất bại, transaction tự khôi phục các file cũ.
+Khi áp dụng, chương trình lưu dữ liệu user tại `data/rule_manager/object_rules.user.json`, backup các file bị tác động vào `backup/rule_manager/<timestamp>/`, cập nhật workbook danh mục nếu có Mã ĐT mới, rồi hợp nhất và thay thế an toàn `config/object_aliases.yaml` cùng `config/object_overrides.yaml`. Hệ thống chỉ giữ một backup gần nhất; backup mới sẽ thay thế backup cũ. Nếu một bước thất bại, transaction tự khôi phục các file cũ.
 
-Mã ĐT mới phải có Mã ĐT, Tên ĐT, đúng danh mục và được xác nhận đã tạo trong VACOM. Hãy đóng workbook danh mục trong Excel trước khi áp dụng.
+Mã ĐT mới chỉ cần Mã ĐT, Tên ĐT và đúng danh mục. Khi xóa Mã ĐT mới, chương trình xóa dòng khỏi workbook local, dọn alias và giữ tombstone để dữ liệu lịch sử không suy lại mã đã xóa. Hãy đóng workbook danh mục trong Excel trước khi áp dụng hoặc xóa.
+
+### Loại thanh toán
+
+1. Chọn `Loại thanh toán` ở thanh điều hướng.
+2. Chọn một loại đang có hoặc bấm `Thêm loại thanh toán`.
+3. Nhập tên loại và các alias nhận diện từ nội dung chuyển khoản.
+4. Bấm `Áp dụng`; chương trình kiểm tra trùng/quá chung, backup rồi cập nhật `config/reason_aliases.yaml`.
+
+Mã kỹ thuật được tạo và quản lý tự động. Các cấu hình suy theo Mã ĐT/tên đối tượng vẫn được giữ nguyên và không hiển thị trên giao diện.
+
+### Nghiệp vụ kế toán
+
+1. Chọn `Nghiệp vụ kế toán` ở thanh điều hướng.
+2. Các nghiệp vụ có sẵn được hiển thị ở chế độ chỉ xem nhưng có thể tạm ngưng hoặc kích hoạt lại.
+3. Bấm `Thêm nghiệp vụ`, nhập Tên nghiệp vụ, Tài khoản, Luồng và alias nhận diện từ nội dung chuyển khoản.
+4. Nghiệp vụ do người dùng thêm có thể chỉnh sửa, tạm ngưng hoặc xóa; nghiệp vụ có sẵn không thể xóa.
+5. Bấm `Áp dụng`; chương trình backup rồi hợp nhất rule user vào `config/default_rules.yaml`.
+
+Một nghiệp vụ chỉ thuộc một luồng. Alias có thể trùng giữa hai luồng khác nhau nhưng không được trùng trong cùng luồng. Thu/Chi tiền mặt tự dùng tài khoản `1111`.
+
+Dữ liệu quản lý của ba module được tách tại `data/rule_manager/object_rules.user.json`, `payment_rules.user.json` và `accounting_rules.user.json`. Mỗi lần áp dụng đều tạo backup mới, thay thế backup trước đó và tự khôi phục nếu xuất bản thất bại.
 
 ## 6. File Input
 

@@ -60,9 +60,15 @@ class ObjectMatcher:
         exact_phrase_overrides: dict[str, str] | None = None,
         supplemental_objects: list[CatalogObject] | None = None,
         own_company: OwnCompanyConfig | None = None,
+        disabled_object_codes: set[str] | None = None,
     ) -> "ObjectMatcher":
+        disabled = {normalize_text(code) for code in disabled_object_codes or set()}
         return cls(
-            load_catalog(path) + list(supplemental_objects or []),
+            [
+                item
+                for item in load_catalog(path) + list(supplemental_objects or [])
+                if normalize_text(item.code) not in disabled
+            ],
             min_score=min_score,
             min_gap=min_gap,
             ambiguous_min_score=ambiguous_min_score,

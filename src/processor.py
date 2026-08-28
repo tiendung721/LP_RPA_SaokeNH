@@ -76,6 +76,10 @@ def process_all(
     config["_object_name_purposes"] = load_object_name_purposes(reason_aliases_path)
     overrides_path = _resolve_config_path(config.get("object_overrides_file", "config/object_overrides.yaml"), project_root)
     object_overrides = load_object_overrides(overrides_path)
+    config["_disabled_object_codes"] = {
+        catalog: set(object_overrides.get(catalog, {}).get("disabled_object_codes", set()))
+        for catalog in ("receivable", "payable", "internal")
+    }
     entity_extractor = EntityExtractor(own_company)
     verifier = AccountingVerifier(config.get("bank_accounts", {}), own_company)
 
@@ -89,6 +93,7 @@ def process_all(
         aliases=_merge_aliases(object_aliases.get("receivable", {}), object_overrides.get("receivable", {}).get("aliases", {})),
         exact_phrase_overrides=object_overrides.get("receivable", {}).get("exact_phrases", {}),
         supplemental_objects=object_overrides.get("receivable", {}).get("supplemental_objects", []),
+        disabled_object_codes=object_overrides.get("receivable", {}).get("disabled_object_codes", set()),
         own_company=own_company,
     )
     payable_matcher = _load_matcher(
@@ -101,6 +106,7 @@ def process_all(
         aliases=_merge_aliases(object_aliases.get("payable", {}), object_overrides.get("payable", {}).get("aliases", {})),
         exact_phrase_overrides=object_overrides.get("payable", {}).get("exact_phrases", {}),
         supplemental_objects=object_overrides.get("payable", {}).get("supplemental_objects", []),
+        disabled_object_codes=object_overrides.get("payable", {}).get("disabled_object_codes", set()),
         own_company=own_company,
     )
     internal_path = _resolve_config_path(config.get("internal_objects_file", "input/MA NOI BO CTY.xlsx"), project_root)
@@ -116,6 +122,7 @@ def process_all(
         ),
         exact_phrase_overrides=object_overrides.get(INTERNAL_OBJECT_CATALOG, {}).get("exact_phrases", {}),
         supplemental_objects=object_overrides.get(INTERNAL_OBJECT_CATALOG, {}).get("supplemental_objects", []),
+        disabled_object_codes=object_overrides.get(INTERNAL_OBJECT_CATALOG, {}).get("disabled_object_codes", set()),
         own_company=own_company,
     )
     historical_memory = _load_historical_memory(config, project_root, logger)
@@ -306,6 +313,11 @@ def process_transaction(
                 object_code = "ERROR"
                 errors.append(match_result.error_note or "Không tìm thấy mã đối tượng")
 
+    if _is_disabled_object_code(config, object_code, active_rule.object_catalog if active_rule else ""):
+        object_code = "ERROR"
+        object_name = ""
+        errors.append("Mã đối tượng đang tạm ngưng")
+
     reason = _reason_for_transaction(
         active_rule,
         flow,
@@ -377,7 +389,11 @@ def process_transaction(
             amount,
             counterparty_hint=entities.counterparty_hint,
         )
-        if historical_match:
+        if historical_match and not _is_disabled_object_code(
+            config,
+            historical_match.code,
+            _object_catalog_for_account(historical_match.account),
+        ):
             _apply_historical_match(item, historical_match, bank_account)
             errors = []
             if verifier:
@@ -586,6 +602,26 @@ def _mark_duplicate_transactions(items: list[ProcessedTransaction]) -> int:
     return duplicate_count
 
 
+def _is_disabled_object_code(config: dict[str, Any], code: str, catalog: str = "") -> bool:
+    code_norm = normalize_text(code)
+    if not code_norm or code_norm == "ERROR":
+        return False
+    disabled = config.get("_disabled_object_codes", {}) or {}
+    if catalog in disabled:
+        return code_norm in {normalize_text(value) for value in disabled.get(catalog, set())}
+    return any(
+        code_norm in {normalize_text(value) for value in values or set()}
+        for values in disabled.values()
+    )
+
+
+def _object_catalog_for_account(account: str) -> str:
+    return {"331": "payable", "131": "receivable", "141": "internal"}.get(
+        str(account or "").strip(),
+        "",
+    )
+
+
 def _load_matcher(
     path: str | Path,
     min_score: float,
@@ -597,6 +633,7 @@ def _load_matcher(
     exact_phrase_overrides: dict[str, str] | None = None,
     supplemental_objects: list[Any] | None = None,
     own_company: OwnCompanyConfig | None = None,
+    disabled_object_codes: set[str] | None = None,
 ) -> ObjectMatcher:
     try:
         matcher = ObjectMatcher.from_excel(
@@ -608,13 +645,18 @@ def _load_matcher(
             exact_phrase_overrides=exact_phrase_overrides or {},
             supplemental_objects=supplemental_objects or [],
             own_company=own_company,
+            disabled_object_codes=disabled_object_codes or set(),
         )
         logger.info("Load danh mục %s: %s dòng", label, len(matcher.objects))
         return matcher
     except Exception as exc:  # noqa: BLE001
         logger.error("Không load được danh mục %s từ %s: %s", label, path, exc)
         return ObjectMatcher(
-            list(supplemental_objects or []),
+            [
+                item
+                for item in supplemental_objects or []
+                if normalize_text(item.code) not in {normalize_text(code) for code in disabled_object_codes or set()}
+            ],
             min_score=min_score,
             min_gap=min_gap,
             ambiguous_min_score=ambiguous_min_score,
@@ -634,10 +676,18 @@ def _load_internal_matcher(
     exact_phrase_overrides: dict[str, str] | None = None,
     supplemental_objects: list[Any] | None = None,
     own_company: OwnCompanyConfig | None = None,
+    disabled_object_codes: set[str] | None = None,
 ) -> ObjectMatcher:
     try:
-        objects = [obj for obj in load_catalog(path) if _looks_like_internal_person(obj)]
-        objects.extend(supplemental_objects or [])
+        disabled = {normalize_text(code) for code in disabled_object_codes or set()}
+        objects = [
+            obj
+            for obj in load_catalog(path)
+            if _looks_like_internal_person(obj) and normalize_text(obj.code) not in disabled
+        ]
+        objects.extend(
+            obj for obj in supplemental_objects or [] if normalize_text(obj.code) not in disabled
+        )
         logger.info("Load danh mục nội bộ: %s cá nhân từ %s", len(objects), path)
         return ObjectMatcher(
             objects,
@@ -651,7 +701,11 @@ def _load_internal_matcher(
     except Exception as exc:  # noqa: BLE001
         logger.error("Không load được danh mục nội bộ từ %s: %s", path, exc)
         return ObjectMatcher(
-            list(supplemental_objects or []),
+            [
+                item
+                for item in supplemental_objects or []
+                if normalize_text(item.code) not in {normalize_text(code) for code in disabled_object_codes or set()}
+            ],
             aliases=aliases or {},
             exact_phrase_overrides=exact_phrase_overrides or {},
             own_company=own_company or OwnCompanyConfig([], [], []),

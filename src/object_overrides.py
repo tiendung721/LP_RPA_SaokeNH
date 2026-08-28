@@ -25,6 +25,11 @@ def _catalog_overrides(data: dict[str, Any]) -> dict[str, Any]:
     supplemental_objects: list[CatalogObject] = []
     aliases: dict[str, list[str]] = {}
     exact_phrases: dict[str, str] = {}
+    disabled_object_codes = {
+        normalize_text(code)
+        for code in data.get("disabled_object_codes", []) or []
+        if normalize_text(code)
+    }
 
     for record in data.get("supplemental_objects", []) or []:
         code = str(record.get("code", "") or "").strip()
@@ -59,4 +64,5 @@ def _catalog_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "supplemental_objects": supplemental_objects,
         "aliases": {code: list(dict.fromkeys(values)) for code, values in aliases.items()},
         "exact_phrases": exact_phrases,
+        "disabled_object_codes": disabled_object_codes,
     }

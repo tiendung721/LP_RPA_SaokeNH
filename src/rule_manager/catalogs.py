@@ -96,6 +96,42 @@ class ObjectCatalogStore:
             )
         return target_row
 
+    def remove(self, catalog: str, code: str) -> int:
+        """Delete exactly one object row from a local VACOM catalog workbook."""
+        self._definition(catalog)
+        path = self.paths.catalog_path(catalog)
+        if not path.exists():
+            raise FileNotFoundError(f"Không tìm thấy danh mục: {path}")
+
+        workbook = load_workbook(path)
+        sheet_name = "r_dmdt" if "r_dmdt" in workbook.sheetnames else workbook.sheetnames[0]
+        ws = workbook[sheet_name]
+        columns = self._detect_columns(ws)
+        normalized_code = normalize_text(code)
+        rows = [
+            row_index
+            for row_index in range(1, ws.max_row + 1)
+            if normalize_text(ws.cell(row=row_index, column=columns["code"]).value) == normalized_code
+        ]
+        if not rows:
+            workbook.close()
+            raise CatalogWorkbookError(f"Không tìm thấy Mã ĐT {code} trong workbook")
+        if len(rows) != 1:
+            workbook.close()
+            raise CatalogWorkbookError(f"Mã ĐT {code} xuất hiện {len(rows)} lần; không thể xóa an toàn")
+
+        target_row = rows[0]
+        ws.delete_rows(target_row, 1)
+        try:
+            with atomic_output_path(path) as temporary_path:
+                workbook.save(temporary_path)
+                workbook.close()
+        finally:
+            workbook.close()
+        if self.find(catalog, code):
+            raise CatalogWorkbookError(f"Đã ghi workbook nhưng vẫn đọc thấy Mã ĐT {code}")
+        return target_row
+
     @staticmethod
     def _definition(catalog: str):
         if catalog not in CATALOG_DEFINITIONS:
