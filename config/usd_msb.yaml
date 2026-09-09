@@ -1,0 +1,28 @@
+profile:
+  bank: "MSB"
+  currency: "USD"
+
+  accounts:
+    bank_usd: "1122HB"
+    receivable_offset: "12882"
+    advance: "13882"
+    cash: "1111"
+
+  cash_withdrawal:
+    payment_receiver: "Lê Minh Tâm"
+
+  reasons:
+    cash_receipt: "Rút tiền mặt cho tàu"
+    cash_payment: "Chuyển tiền cho tàu"
+    vessel: "TT tiền tàu"
+    port: "TT tiền cảng phí"
+
+  exchange_rate:
+    endpoint: "https://digibank-api-business.msb.com.vn/api/corp-foreign-exchange/client-api/v2/exchange-rates/public/overview"
+    board_number: 2
+    currency_market: 1
+    rate_field: "buyRateValue"
+    timeout_seconds: 10
+    cache:
+      scope: "batch"
+      cache_failures: true

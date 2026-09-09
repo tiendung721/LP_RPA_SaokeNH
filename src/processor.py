@@ -35,6 +35,11 @@ from .reason_aliases import ReasonPurpose, load_object_name_purposes, load_objec
 from .reason_generator import clean_reason_value, generate_reason, has_usable_object_code, reason_requires_object_code
 from .rule_engine import RuleEngine
 from .transaction_identity import assign_transaction_uids, build_transaction_uid, transaction_fingerprint
+from .usd.adapter import configuration_error_records, outcomes_to_processed
+from .usd.models import STATUS_MISSING_EXCHANGE_RATE, STATUS_SKIPPED
+from .usd.processor import USDProcessor
+from .usd.profile import USDProfileError, load_usd_profile
+from .usd.statement_profile import detect_statement_currency
 
 
 PARSERS = {
@@ -141,10 +146,16 @@ def process_all(
             "skipped_non_transaction_rows": 0,
             "duplicate_count": 0,
             "parser_warnings": [],
+            "usd_source_transaction_count": 0,
+            "usd_accounting_entry_count": 0,
+            "usd_skipped_count": 0,
+            "usd_missing_exchange_rate_count": 0,
         }
     )
 
     processed: list[ProcessedTransaction] = []
+    vnd_processed: list[ProcessedTransaction] = []
+    usd_processor: USDProcessor | None = None
     for statement_file in statement_files:
         try:
             bank = detect_bank(statement_file, logger=logger)
@@ -162,6 +173,47 @@ def process_all(
             continue
 
         run_stats["input_transaction_count"] += len(transactions)
+        statement_currency = ""
+        if bank == "MSB":
+            try:
+                statement_currency = detect_statement_currency(statement_file)
+            except Exception as exc:  # noqa: BLE001 - missing metadata must preserve the legacy VND route
+                logger.warning("Không đọc được loại tiền của %s: %s", statement_file.name, exc)
+            if not statement_currency:
+                logger.warning("Không tìm thấy loại tiền của %s; tiếp tục luồng VND hiện tại", statement_file.name)
+
+        if bank == "MSB" and statement_currency == "USD":
+            try:
+                if usd_processor is None:
+                    usd_profile_path = _resolve_config_path(
+                        config.get("usd_profile_file", "config/usd_msb.yaml"),
+                        project_root,
+                    )
+                    usd_profile = load_usd_profile(usd_profile_path)
+                    if usd_profile.bank != bank or usd_profile.currency != statement_currency:
+                        raise USDProfileError(
+                            f"USD profile {usd_profile.bank}/{usd_profile.currency} không khớp {bank}/{statement_currency}"
+                        )
+                    usd_processor = USDProcessor(usd_profile)
+                outcomes = usd_processor.process_batch(transactions)
+                usd_items = outcomes_to_processed(outcomes)
+            except USDProfileError as exc:
+                logger.error("Cấu hình USD không hợp lệ cho %s: %s", statement_file.name, exc)
+                usd_items = configuration_error_records(transactions, str(exc))
+                outcomes = []
+            processed.extend(usd_items)
+            run_stats["usd_source_transaction_count"] = run_stats.get("usd_source_transaction_count", 0) + len(transactions)
+            run_stats["usd_accounting_entry_count"] = run_stats.get("usd_accounting_entry_count", 0) + sum(
+                1 for item in usd_items if item.status == "OK"
+            )
+            run_stats["usd_skipped_count"] = run_stats.get("usd_skipped_count", 0) + sum(
+                1 for item in usd_items if item.status == STATUS_SKIPPED
+            )
+            run_stats["usd_missing_exchange_rate_count"] = run_stats.get("usd_missing_exchange_rate_count", 0) + sum(
+                1 for item in usd_items if item.status == STATUS_MISSING_EXCHANGE_RATE
+            )
+            continue
+
         for transaction in transactions:
             item = process_transaction(
                 transaction=transaction,
@@ -175,8 +227,9 @@ def process_all(
                 historical_memory=historical_memory,
             )
             processed.append(item)
+            vnd_processed.append(item)
 
-    assign_transaction_uids(processed)
+    assign_transaction_uids(vnd_processed)
     duplicate_count = _mark_duplicate_transactions(processed)
     run_stats["duplicate_count"] = duplicate_count
     logger.info("Số dòng báo nợ: %s", sum(1 for item in processed if item.flow == FLOW_BAO_NO))
@@ -184,8 +237,9 @@ def process_all(
     logger.info("Số dòng phiếu thu tiền mặt: %s", sum(1 for item in processed if item.flow == FLOW_THU_TIEN_MAT))
     logger.info("Số dòng phiếu chi tiền mặt: %s", sum(1 for item in processed if item.flow == FLOW_CHI_TIEN_MAT))
     logger.info("Số dòng trùng: %s", duplicate_count)
+    logger.info("Số dòng USD SKIPPED: %s", sum(1 for item in processed if item.status == STATUS_SKIPPED))
     logger.info("Số dòng OK: %s", sum(1 for item in processed if item.status == "OK"))
-    logger.info("Số dòng EXCEPTION: %s", sum(1 for item in processed if item.status != "OK"))
+    logger.info("Số dòng EXCEPTION: %s", sum(1 for item in processed if item.status not in {"OK", STATUS_SKIPPED}))
     logger.info("Kết thúc chạy")
     return processed
 
@@ -582,11 +636,13 @@ def _load_historical_memory(config: dict[str, Any], project_root: Path, logger: 
 
 
 def _mark_duplicate_transactions(items: list[ProcessedTransaction]) -> int:
-    fingerprints = [transaction_fingerprint(item) for item in items]
-    counts = Counter(fingerprints)
+    fingerprints = [transaction_fingerprint(item) if item.status != STATUS_SKIPPED else "" for item in items]
+    counts = Counter(fingerprint for fingerprint in fingerprints if fingerprint)
     first_uid_by_fingerprint: dict[str, str] = {}
     duplicate_count = 0
     for item, fingerprint in zip(items, fingerprints):
+        if not fingerprint:
+            continue
         if counts[fingerprint] <= 1:
             continue
         first_uid = first_uid_by_fingerprint.get(fingerprint)

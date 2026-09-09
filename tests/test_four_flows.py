@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from functools import lru_cache
+import hashlib
+import json
 from pathlib import Path
+import shutil
 
 import pytest
 from openpyxl import load_workbook
@@ -688,6 +691,7 @@ def test_output_has_four_pad_sheets_with_exchange_rate_column(tmp_path):
         "CHI_TIEN_MAT_INPUT",
         "EXCEPTION",
     ]
+
     for sheet_name in ["BAO_NO_INPUT", "BAO_CO_INPUT", "THU_TIEN_MAT_INPUT", "CHI_TIEN_MAT_INPUT"]:
         assert sheet_name in wb.sheetnames
         ws = wb[sheet_name]
@@ -748,8 +752,14 @@ def test_integration_process_real_samples_and_write_outputs(tmp_path):
 
     config = _config()
     logger = logging.getLogger("integration-four-flows")
+    statements_dir = tmp_path / "statements"
+    statements_dir.mkdir()
+    shutil.copy2(
+        PROJECT_ROOT / "input" / "sao ke test" / "5614249_SAOKE_TK_202606.xlsx",
+        statements_dir / "5614249_SAOKE_TK_202606.xlsx",
+    )
     processed = process_all(
-        statements_dir=STATEMENTS_DIR,
+        statements_dir=statements_dir,
         receivable_path=PROJECT_ROOT / "input" / "R_DMDT1 1.xlsx",
         payable_path=PROJECT_ROOT / "input" / "R_DMDT1.xlsx",
         rules_path=None,
@@ -824,3 +834,40 @@ def test_integration_process_real_samples_and_write_outputs(tmp_path):
         "CHI_TIEN_MAT_INPUT",
         "EXCEPTION",
     ]
+
+    model_snapshot = [
+        {
+            "uid": item.transaction_uid,
+            "row": item.original_row_index,
+            "flow": item.flow,
+            "debit": item.debit_account,
+            "credit": item.credit_account,
+            "object": item.object_code,
+            "reason": item.reason,
+            "status": item.status,
+        }
+        for item in processed
+    ]
+    sheet_snapshot = {}
+    for worksheet in wb.worksheets:
+        rows = []
+        for row in worksheet.iter_rows(values_only=True):
+            values = []
+            for value in row:
+                if isinstance(value, (date, datetime)):
+                    value = value.isoformat()
+                elif value == result.run_id:
+                    value = "<run_id>"
+                values.append(value)
+            rows.append(values)
+        sheet_snapshot[worksheet.title] = rows
+    serialized = json.dumps(
+        {"model": model_snapshot, "sheets": sheet_snapshot},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    assert hashlib.sha256(serialized.encode("utf-8")).hexdigest() == (
+        "2620d48a64c89879b723259ae0c33d2cc797f85fe8d9eb35ac52909f4e76c010"
+    )

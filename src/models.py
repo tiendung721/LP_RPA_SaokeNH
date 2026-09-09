@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 
@@ -123,7 +124,7 @@ class ProcessedTransaction:
     reason: str
     debit_account: str
     credit_account: str
-    amount: float
+    amount: float | Decimal
     use_case: str
     original_content: str
     counterparty_raw: str
@@ -147,5 +148,10 @@ class ProcessedTransaction:
     is_duplicate: bool = False
     duplicate_of: str = ""
     foreign_currency: str = ""
-    foreign_amount: float = 0.0
-    exchange_rate: float = 0.0
+    foreign_amount: float | Decimal = 0.0
+    exchange_rate: float | Decimal = 0.0
+    source_transaction_uid: str = ""
+    entry_uid: str = ""
+    payer_name: str = ""
+    receiver_name: str = ""
+    skip_reason: str = ""

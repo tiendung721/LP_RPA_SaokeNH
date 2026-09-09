@@ -16,7 +16,14 @@ class ChangeBackup:
     def create(self, paths: Iterable[Path], metadata: dict | None = None) -> Path:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         destination = self.backup_root / timestamp
-        destination.mkdir(parents=True, exist_ok=False)
+        suffix = 0
+        while True:
+            try:
+                destination.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                suffix += 1
+                destination = self.backup_root / f"{timestamp}_{suffix}"
         try:
             manifest: list[dict[str, object]] = []
             for source in dict.fromkeys(Path(path).resolve() for path in paths):

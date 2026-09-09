@@ -35,6 +35,7 @@ object_aliases_file: "config/object_aliases.yaml"
 object_overrides_file: "config/object_overrides.yaml"
 reason_aliases_file: "config/reason_aliases.yaml"
 internal_objects_file: "input/MA NOI BO CTY.xlsx"
+usd_profile_file: "config/usd_msb.yaml"
 
 historical_memory:
   enabled: true

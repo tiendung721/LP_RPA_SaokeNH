@@ -2,7 +2,7 @@
 
 Accounting Agent offline để xử lý sao kê ACB/MSB/VCB, phân loại báo nợ/báo có, nhận diện nghiệp vụ kế toán, suy luận mã đối tượng và sinh file trung gian cho RPA nhập VACOM.
 
-Phiên bản hiện tại dùng kiến trúc rule-first: rule + entity extraction + alias/fuzzy matching + historical memory + accounting verifier. Không dùng ML, LLM hoặc API cloud.
+Phiên bản hiện tại dùng kiến trúc rule-first: rule + entity extraction + alias/fuzzy matching + historical memory + accounting verifier. Không dùng ML hoặc LLM. Luồng VND chạy offline; riêng sao kê MSB USD gọi API tỷ giá công khai của MSB theo ngày giao dịch.
 
 ## 1. Chạy Bằng Venv
 
@@ -89,7 +89,12 @@ Trước khi agent/PAD cập nhật trạng thái, hãy đóng các workbook out
 - `config/object_aliases.yaml`: alias thực tế trên sao kê, ví dụ `KBB`, `PETROLIMEX`, `VINH LONG`, `VSICO`.
 - `config/reason_aliases.yaml`: alias loại thanh toán để sinh `Lí do` chi tiết, ví dụ `cước vận chuyển`, `phí cảng vụ`, `tiền thuê văn phòng`.
 - `config/default_rules.yaml`: rule nghiệp vụ kế toán.
+- `config/usd_msb.yaml`: profile riêng cho MSB USD, gồm tài khoản, lý do, người nhận tiền và cấu hình lấy tỷ giá mua chuyển khoản (`board_number: 2`, `currency_market: 1`, `buyRateValue`).
   Khi gặp mã ĐT hay sai, ưu tiên bổ sung alias vào `object_aliases.yaml` trước. Đây là cách ổn định và dễ kiểm toán nhất.
+
+### Luồng MSB USD
+
+Sao kê MSB có metadata `Currency: USD` được xử lý bằng rule USD riêng; `Currency: VND` và file không có metadata currency tiếp tục dùng pipeline VND hiện tại. Tỷ giá được lấy một lần cho mỗi ngày giao dịch trong một batch, không retry và không dùng tỷ giá ngày khác. Dòng bán ngoại tệ/phí ngân hàng được ghi `SKIPPED` trong `rpa_summary.xlsx`, không vào input hoặc exception. Nếu thiếu tỷ giá, giao dịch vào `EXCEPTION` với số USD gốc và để trống tỷ giá/thành tiền.
 
 ## 4. Chạy Test
 

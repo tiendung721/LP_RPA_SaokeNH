@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass
 from datetime import date
+from decimal import Decimal
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -200,7 +201,7 @@ def write_excel(
         [
             _exception_record(item, run_id=run_id, reason_encoding=rpa_reason_encoding)
             for item in processed
-            if item.status != "OK"
+            if item.status not in {"OK", "SKIPPED"}
         ],
         columns=EXCEPTION_COLUMNS,
     )
@@ -693,12 +694,12 @@ def _rpa_record(
         "Ngày CT": item.transaction_date,
         "Mã ĐT": item.object_code,
         "Lí do": _rpa_reason(item.reason, reason_encoding),
-        "Người nộp tiền": _cash_recipient_name(item),
-        "Người nhận tiền": _cash_recipient_name(item),
+        "Người nộp tiền": item.payer_name or _cash_recipient_name(item),
+        "Người nhận tiền": item.receiver_name or _cash_recipient_name(item),
         "TK nợ": item.debit_account,
         "TK có": item.credit_account,
-        "Thành tiền": item.amount,
-        "Tỷ giá": item.exchange_rate or "",
+        "Thành tiền": "" if item.source_transaction_uid and item.status != "OK" else _excel_number(item.amount),
+        "Tỷ giá": _excel_number(item.exchange_rate) if item.exchange_rate else "",
         "Ngân hàng": item.bank,
         "transaction_uid": item.transaction_uid,
         "run_id": run_id or "",
@@ -727,6 +728,14 @@ def _is_tcvn3_reason_encoding(encoding: str = "") -> bool:
     return str(encoding or "").strip().lower() == RPA_REASON_ENCODING_TCVN3
 
 
+def _excel_number(value: Any) -> Any:
+    """Keep Decimal arithmetic internally while emitting numeric Excel cells."""
+    if not isinstance(value, Decimal):
+        return value
+    integral = value.to_integral_value()
+    return int(integral) if value == integral else float(value)
+
+
 def _exception_record(
     item: ProcessedTransaction,
     run_id: str | None = None,
@@ -749,10 +758,10 @@ def _exception_record(
         "Lý do": item.reason,
         "TK nợ": item.debit_account,
         "TK có": item.credit_account,
-        "Thành tiền": item.amount,
+        "Thành tiền": "" if item.source_transaction_uid else _excel_number(item.amount),
         "Ngoại tệ": item.foreign_currency,
-        "Số tiền ngoại tệ": item.foreign_amount or "",
-        "Tỷ giá": item.exchange_rate or "",
+        "Số tiền ngoại tệ": _excel_number(item.foreign_amount) if item.foreign_amount else "",
+        "Tỷ giá": _excel_number(item.exchange_rate) if item.exchange_rate else "",
         "transaction_uid": item.transaction_uid,
         "run_id": run_id or "",
         "source_file": item.source_file,
@@ -990,8 +999,9 @@ def _summary_records(
     add("Tổng quan", "Số dòng chưa nhập", sum(1 for item in processed if item.rpa_status == "chua_nhap"))
     add("Tổng quan", "Số dòng hoàn thành", sum(1 for item in processed if item.rpa_status == "hoan_thanh"))
     add("Tổng quan", "Số dòng OK", sum(1 for item in processed if item.status == "OK"))
-    add("Tổng quan", "Số giao dịch lỗi", sum(1 for item in processed if item.status != "OK"))
-    add("Tổng quan", "Số giao dịch chờ kiểm tra", sum(1 for item in processed if item.status != "OK"))
+    add("Tổng quan", "Số giao dịch SKIPPED", sum(1 for item in processed if item.status == "SKIPPED"))
+    add("Tổng quan", "Số giao dịch lỗi", sum(1 for item in processed if item.status not in {"OK", "SKIPPED"}))
+    add("Tổng quan", "Số giao dịch chờ kiểm tra", sum(1 for item in processed if item.status not in {"OK", "SKIPPED"}))
     add("Tổng quan", "Số dòng bị bỏ qua vì là tiêu đề/số dư/tổng cộng", run_stats.get("skipped_non_transaction_rows", 0))
     add("Tổng quan", "Số giao dịch trùng", run_stats.get("duplicate_count", sum(1 for item in processed if item.is_duplicate)))
 
@@ -1133,6 +1143,10 @@ def _apply_summary_tracking_fields(record: dict[str, Any], summary_record: dict[
 
 
 def _cash_recipient_name(item: ProcessedTransaction) -> str:
+    if item.flow == FLOW_THU_TIEN_MAT and item.payer_name:
+        return item.payer_name
+    if item.flow == FLOW_CHI_TIEN_MAT and item.receiver_name:
+        return item.receiver_name
     if item.flow not in {FLOW_THU_TIEN_MAT, FLOW_CHI_TIEN_MAT}:
         return ""
     return str(getattr(item.entities, "cash_person_name", "") or "").strip()

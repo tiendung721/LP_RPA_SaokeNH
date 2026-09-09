@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -243,6 +244,19 @@ def _apply_bulk_tracking_update(summary_path: str | Path, updater) -> pd.DataFra
 
 def _merge_record(previous: dict[str, Any] | None, item: ProcessedTransaction, run_id: str) -> dict[str, Any]:
     current = _record_from_item(item, run_id)
+    if item.status == "SKIPPED":
+        if previous:
+            previous = _ensure_summary_record(previous)
+            if normalize_status(previous.get(STATUS_COLUMN), default=STATUS_PENDING) == STATUS_DONE:
+                return previous
+        amount = _clean_text(item.foreign_amount)
+        currency = _clean_text(item.foreign_currency)
+        current[STATUS_COLUMN] = STATUS_DONE
+        current[MESSAGE_COLUMN] = "; ".join(
+            part for part in [item.skip_reason, f"{amount} {currency}".strip()] if part
+        )
+        current[COMPLETED_COLUMN] = _now()
+        return current
     if not previous:
         current[STATUS_COLUMN] = STATUS_PENDING
         current[MESSAGE_COLUMN] = "" if item.status == "OK" else item.error_note
@@ -278,7 +292,7 @@ def _record_from_item(item: ProcessedTransaction, run_id: str) -> dict[str, Any]
         "Tên ĐT": item.object_name,
         "TK nợ": item.debit_account,
         "TK có": item.credit_account,
-        "Thành tiền": item.amount,
+        "Thành tiền": "" if item.source_transaction_uid and item.status != "OK" else _excel_number(item.amount),
         "Kết quả phân loại": item.status,
         STATUS_COLUMN: "",
         VOUCHER_COLUMN: "",
@@ -296,6 +310,13 @@ def _record_from_item(item: ProcessedTransaction, run_id: str) -> dict[str, Any]
 def _ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
     records = [_ensure_summary_record(_clean_record(row)) for row in df.to_dict("records")]
     return pd.DataFrame(records, columns=SUMMARY_COLUMNS)
+
+
+def _excel_number(value: Any) -> Any:
+    if not isinstance(value, Decimal):
+        return value
+    integral = value.to_integral_value()
+    return int(integral) if value == integral else float(value)
 
 
 def _ensure_summary_record(row: dict[str, Any]) -> dict[str, Any]:
@@ -386,12 +407,12 @@ def _initial_stats(processed: list[ProcessedTransaction]) -> dict[str, int]:
         "pending_count": 0,
         "in_progress_count": 0,
         "error_count": 0,
-        "skipped_count": 0,
+        "skipped_count": sum(1 for item in processed if item.status == "SKIPPED"),
         "skipped_completed_count": 0,
         "waiting_count": 0,
         "retry_error_count": 0,
         "review_count": 0,
-        "exception_count": sum(1 for item in processed if item.status != "OK"),
+        "exception_count": sum(1 for item in processed if item.status not in {"OK", "SKIPPED"}),
         "bao_no_output_count": 0,
         "bao_co_output_count": 0,
         "thu_tien_mat_output_count": 0,

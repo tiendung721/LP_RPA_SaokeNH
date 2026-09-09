@@ -61,6 +61,7 @@ def main() -> int:
     logger.info("So dong moi: %s", stats.get("new_count", 0))
     logger.info("So dong chua nhap: %s", stats.get("pending_count", 0))
     logger.info("So dong hoan thanh: %s", stats.get("skipped_completed_count", 0))
+    logger.info("So dong USD SKIPPED: %s", stats.get("skipped_count", 0))
     logger.info("So dong bao no xuat ra: %s", stats.get("bao_no_output_count", 0))
     logger.info("So dong bao co xuat ra: %s", stats.get("bao_co_output_count", 0))
     logger.info("So dong phieu thu tien mat xuat ra: %s", stats.get("thu_tien_mat_output_count", 0))

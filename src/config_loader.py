@@ -29,6 +29,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "object_overrides_file": "config/object_overrides.yaml",
     "reason_aliases_file": "config/reason_aliases.yaml",
     "internal_objects_file": "input/MA NOI BO CTY.xlsx",
+    "usd_profile_file": "config/usd_msb.yaml",
     "historical_memory": {
         "enabled": True,
         "file": "input/thong_ke.xlsx",
