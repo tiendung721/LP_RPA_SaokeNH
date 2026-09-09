@@ -1,4 +1,4 @@
-﻿# Bank Agent Project
+# Bank Agent Project
 
 Accounting Agent offline để xử lý sao kê ACB/MSB/VCB, phân loại báo nợ/báo có, nhận diện nghiệp vụ kế toán, suy luận mã đối tượng và sinh file trung gian cho RPA nhập VACOM.
 
@@ -89,7 +89,7 @@ Trước khi agent/PAD cập nhật trạng thái, hãy đóng các workbook out
 - `config/object_aliases.yaml`: alias thực tế trên sao kê, ví dụ `KBB`, `PETROLIMEX`, `VINH LONG`, `VSICO`.
 - `config/reason_aliases.yaml`: alias loại thanh toán để sinh `Lí do` chi tiết, ví dụ `cước vận chuyển`, `phí cảng vụ`, `tiền thuê văn phòng`.
 - `config/default_rules.yaml`: rule nghiệp vụ kế toán.
-Khi gặp mã ĐT hay sai, ưu tiên bổ sung alias vào `object_aliases.yaml` trước. Đây là cách ổn định và dễ kiểm toán nhất.
+  Khi gặp mã ĐT hay sai, ưu tiên bổ sung alias vào `object_aliases.yaml` trước. Đây là cách ổn định và dễ kiểm toán nhất.
 
 ## 4. Chạy Test
 
