@@ -20,6 +20,7 @@ class USDSourceTransaction:
     foreign_amount: Decimal
     classification: str = ""
     exchange_rate: Decimal | None = None
+    exchange_rate_board_number: int | None = None
     rate_error: str = ""
 
 

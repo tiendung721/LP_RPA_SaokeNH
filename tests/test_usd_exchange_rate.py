@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date
 from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
@@ -40,12 +41,74 @@ def test_msb_provider_uses_approved_query_market_and_buy_rate():
 
     assert result.ok
     assert result.rate == Decimal("26120")
+    assert result.board_number == 2
+    assert not result.used_fallback_board
     assert len(calls) == 1
     query = parse_qs(urlparse(calls[0][0]).query)
     assert query == {"boardDate": ["27/06/2026"], "boardNumber": ["2"]}
     assert calls[0][1] == 10
     assert profile.currency_market == 1
     assert profile.rate_field == "buyRateValue"
+    assert profile.fallback_board_numbers == (1,)
+
+
+def test_msb_provider_falls_back_to_board_one_only_when_board_two_is_not_published(caplog):
+    calls = []
+
+    def transport(url, timeout):
+        calls.append(url)
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        if parsed.path.endswith("/board-info"):
+            return 200, json.dumps([{"boardNumber": 1, "boardType": "NY"}])
+        if query["boardNumber"] == ["2"]:
+            return 200, json.dumps({"currencyOverview": []})
+        return 200, _response(rate="26,110")
+
+    caplog.set_level(logging.WARNING)
+    provider = MsbExchangeRateProvider(load_usd_profile("config/usd_msb.yaml"), transport=transport)
+
+    result = provider.get_rate(date(2026, 6, 17))
+
+    assert result.ok
+    assert result.rate == Decimal("26110")
+    assert result.board_number == 1
+    assert result.preferred_board_number == 2
+    assert result.used_fallback_board
+    assert len(calls) == 3
+    assert "sử dụng board 1 cùng ngày" in caplog.text
+
+
+def test_msb_provider_does_not_fallback_when_board_two_is_published_but_overview_is_empty():
+    calls = []
+
+    def transport(url, timeout):
+        calls.append(url)
+        if urlparse(url).path.endswith("/board-info"):
+            return 200, json.dumps([{"boardNumber": 2}, {"boardNumber": 1}])
+        return 200, json.dumps({"currencyOverview": []})
+
+    result = MsbExchangeRateProvider(
+        load_usd_profile("config/usd_msb.yaml"), transport=transport
+    ).get_rate(date(2026, 6, 17))
+
+    assert not result.ok
+    assert result.error_code == "EMPTY_OVERVIEW"
+    assert "không fallback" in result.error_message
+    assert len(calls) == 2
+
+
+def test_msb_provider_reports_missing_same_day_fallback_board():
+    def transport(url, timeout):
+        if urlparse(url).path.endswith("/board-info"):
+            return 200, json.dumps([])
+        return 200, json.dumps({"currencyOverview": []})
+
+    result = MsbExchangeRateProvider(
+        load_usd_profile("config/usd_msb.yaml"), transport=transport
+    ).get_rate(date(2026, 6, 17))
+
+    assert result.error_code == "BOARD_UNAVAILABLE"
 
 
 @pytest.mark.parametrize(

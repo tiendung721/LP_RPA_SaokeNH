@@ -98,6 +98,14 @@ def prepare_rpa_run(
     records_by_uid: dict[str, dict[str, Any]] = {}
     rpa_items: list[ProcessedTransaction] = []
     seen: set[str] = set()
+    expanded_source_uids = {
+        item.source_transaction_uid
+        for item in processed
+        if item.status == "OK"
+        and item.source_transaction_uid
+        and item.entry_uid
+        and item.entry_uid != item.source_transaction_uid
+    }
     stats = _initial_stats(processed)
 
     for item in processed:
@@ -125,7 +133,7 @@ def prepare_rpa_run(
 
     for row in existing_df.to_dict("records"):
         uid = _clean_text(row.get("transaction_uid"))
-        if uid and uid not in seen:
+        if uid and uid not in seen and uid not in expanded_source_uids:
             records_by_uid[uid] = _ensure_summary_record(row)
 
     summary_df = _ensure_columns(pd.DataFrame(list(records_by_uid.values()), columns=SUMMARY_COLUMNS))

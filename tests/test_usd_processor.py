@@ -100,7 +100,7 @@ def test_one_entry_rules_use_source_uid_accounts_and_reasons():
 
     assert [entry.flow for entry in entries] == [FLOW_BAO_CO, FLOW_BAO_NO, FLOW_BAO_NO]
     assert [(entry.debit_account, entry.credit_account) for entry in entries] == [
-        ("1122HB", "12882"),
+        ("1122HB", "13882"),
         ("13882", "1122HB"),
         ("13882", "1122HB"),
     ]

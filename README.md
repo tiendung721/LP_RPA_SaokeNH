@@ -94,7 +94,7 @@ Trước khi agent/PAD cập nhật trạng thái, hãy đóng các workbook out
 
 ### Luồng MSB USD
 
-Sao kê MSB có metadata `Currency: USD` được xử lý bằng rule USD riêng; `Currency: VND` và file không có metadata currency tiếp tục dùng pipeline VND hiện tại. Tỷ giá được lấy một lần cho mỗi ngày giao dịch trong một batch, không retry và không dùng tỷ giá ngày khác. Dòng bán ngoại tệ/phí ngân hàng được ghi `SKIPPED` trong `rpa_summary.xlsx`, không vào input hoặc exception. Nếu thiếu tỷ giá, giao dịch vào `EXCEPTION` với số USD gốc và để trống tỷ giá/thành tiền.
+Sao kê MSB có metadata `Currency: USD` được xử lý bằng rule USD riêng; `Currency: VND` và file không có metadata currency tiếp tục dùng pipeline VND hiện tại. Tỷ giá được lấy một lần cho mỗi ngày giao dịch trong một batch, không retry và không dùng tỷ giá ngày khác. Hệ thống ưu tiên board 2; nếu API `board-info` xác nhận MSB không phát hành board 2 trong ngày thì dùng board 1 của chính ngày đó. Dòng bán ngoại tệ/phí ngân hàng được ghi `SKIPPED` trong `rpa_summary.xlsx`, không vào input hoặc exception. Nếu thiếu tỷ giá, giao dịch vào `EXCEPTION` với số USD gốc và để trống tỷ giá/thành tiền.
 
 ## 4. Chạy Test
 

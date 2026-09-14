@@ -151,8 +151,18 @@ def test_missing_currency_preserves_legacy_vnd_route_and_warns(tmp_path, monkeyp
 
 
 def test_local_real_usd_statement_matches_approved_acceptance_counts():
-    sample = PROJECT_ROOT / "input" / "ReportIBSCorpAccountStatement_20260903144134.xlsx"
-    if not sample.exists():
+    sample = next(
+        (
+            path
+            for path in (
+                PROJECT_ROOT / "input" / "ReportIBSCorpAccountStatement_20260903144134.xlsx",
+                PROJECT_ROOT / "input" / "statements" / "ReportIBSCorpAccountStatement_20260903144134.xlsx",
+            )
+            if path.exists()
+        ),
+        None,
+    )
+    if sample is None:
         pytest.skip("User-owned local acceptance file is not available")
 
     transactions = MSBParser().parse(sample)

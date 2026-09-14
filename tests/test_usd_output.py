@@ -136,3 +136,35 @@ def test_rtm_receipt_and_payment_can_be_completed_independently(tmp_path):
     assert rows.at[receipt_uid, STATUS_COLUMN] == STATUS_DONE
     assert rows.at[receipt_uid, VOUCHER_COLUMN] == "PT001"
     assert rows.at[payment_uid, STATUS_COLUMN] != STATUS_DONE
+
+
+def test_successful_rtm_replaces_previous_source_level_rate_exception_in_summary(tmp_path):
+    transaction = _transaction("RTM NGUYEN VAN AN CCCD 1", debit=10, row=20)
+    profile = load_usd_profile("config/usd_msb.yaml")
+    missing = USDProcessor(profile, transport=lambda url, timeout: (503, "")).process_batch([transaction])
+    missing_items = outcomes_to_processed(missing)
+    source_uid = missing_items[0].transaction_uid
+    first = write_outputs(missing_items, tmp_path, {"output": {}})
+    first_summary = pd.read_excel(first.summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object).fillna("")
+    assert list(first_summary["transaction_uid"]) == [source_uid]
+
+    body = json.dumps(
+        {
+            "currencyOverview": [
+                {
+                    "currencyCode": "USD",
+                    "exchangeRatesData": [{"currencyMarket": 1, "buyRateValue": "26,120"}],
+                }
+            ]
+        }
+    )
+    ready = USDProcessor(profile, transport=lambda url, timeout: (200, body)).process_batch([transaction])
+    ready_items = outcomes_to_processed(ready)
+    second = write_outputs(ready_items, tmp_path, {"output": {}})
+    second_summary = pd.read_excel(second.summary_path, sheet_name=SUMMARY_SHEET_NAME, dtype=object).fillna("")
+
+    assert set(second_summary["transaction_uid"]) == {
+        f"{source_uid}:THU_TM",
+        f"{source_uid}:CHI_TM",
+    }
+    assert source_uid not in set(second_summary["transaction_uid"])

@@ -96,6 +96,7 @@ class USDProcessor:
                 )
                 continue
             source.exchange_rate = rate_result.rate
+            source.exchange_rate_board_number = rate_result.board_number
             entries = self._create_entries(source, classification)
             verification_errors = self.verifier.verify(source, entries)
             if verification_errors:

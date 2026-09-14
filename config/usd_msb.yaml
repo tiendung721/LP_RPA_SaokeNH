@@ -4,7 +4,7 @@ profile:
 
   accounts:
     bank_usd: "1122HB"
-    receivable_offset: "12882"
+    receivable_offset: "13882"
     advance: "13882"
     cash: "1111"
 
@@ -19,7 +19,9 @@ profile:
 
   exchange_rate:
     endpoint: "https://digibank-api-business.msb.com.vn/api/corp-foreign-exchange/client-api/v2/exchange-rates/public/overview"
+    board_info_endpoint: "https://digibank-api-business.msb.com.vn/api/corp-foreign-exchange/client-api/v1/exchange-rates/public/board-info"
     board_number: 2
+    fallback_board_numbers: [1]
     currency_market: 1
     rate_field: "buyRateValue"
     timeout_seconds: 10

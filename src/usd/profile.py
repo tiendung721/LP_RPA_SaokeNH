@@ -25,7 +25,9 @@ class USDProfile:
     vessel_reason: str
     port_reason: str
     exchange_rate_endpoint: str
+    board_info_endpoint: str
     board_number: int
+    fallback_board_numbers: tuple[int, ...]
     currency_market: int
     rate_field: str
     timeout_seconds: float
@@ -57,6 +59,7 @@ def load_usd_profile(path: str | Path) -> USDProfile:
         "profile.reasons.vessel": reasons.get("vessel"),
         "profile.reasons.port": reasons.get("port"),
         "profile.exchange_rate.endpoint": exchange.get("endpoint"),
+        "profile.exchange_rate.board_info_endpoint": exchange.get("board_info_endpoint"),
         "profile.exchange_rate.board_number": exchange.get("board_number"),
         "profile.exchange_rate.currency_market": exchange.get("currency_market"),
         "profile.exchange_rate.rate_field": exchange.get("rate_field"),
@@ -70,6 +73,13 @@ def load_usd_profile(path: str | Path) -> USDProfile:
     if rate_field not in {"buyRateValue", "sellRateValue"}:
         raise USDProfileError("rate_field phải là buyRateValue hoặc sellRateValue")
     timeout = _positive_float(exchange["timeout_seconds"], "timeout_seconds")
+    board_number = _positive_int(exchange["board_number"], "board_number")
+    fallback_board_numbers = tuple(
+        _positive_int(value, "fallback_board_numbers")
+        for value in exchange.get("fallback_board_numbers", []) or []
+    )
+    if board_number in fallback_board_numbers:
+        raise USDProfileError("fallback_board_numbers không được chứa board_number ưu tiên")
 
     return USDProfile(
         bank=str(profile["bank"]).strip().upper(),
@@ -84,7 +94,9 @@ def load_usd_profile(path: str | Path) -> USDProfile:
         vessel_reason=str(reasons["vessel"]).strip(),
         port_reason=str(reasons["port"]).strip(),
         exchange_rate_endpoint=str(exchange["endpoint"]).strip(),
-        board_number=_positive_int(exchange["board_number"], "board_number"),
+        board_info_endpoint=str(exchange["board_info_endpoint"]).strip(),
+        board_number=board_number,
+        fallback_board_numbers=fallback_board_numbers,
         currency_market=_positive_int(exchange["currency_market"], "currency_market"),
         rate_field=rate_field,
         timeout_seconds=timeout,
