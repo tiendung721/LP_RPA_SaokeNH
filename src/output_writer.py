@@ -211,7 +211,7 @@ def write_excel(
                 sheet_name = flow_sheet(flow)
                 flow_dfs[flow].to_excel(writer, sheet_name=sheet_name, index=False)
                 _format_sheet(writer.book[sheet_name])
-                _hide_columns(writer.book[sheet_name], INPUT_TECHNICAL_COLUMNS)
+                #_hide_columns(writer.book[sheet_name], INPUT_TECHNICAL_COLUMNS)
             exception_df.to_excel(writer, sheet_name="EXCEPTION", index=False)
             _format_sheet(writer.book["EXCEPTION"])
             _style_exception_sheet(writer.book["EXCEPTION"])
